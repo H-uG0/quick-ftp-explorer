@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta charset="utf-8" />
+  <title>Quick FTP Explorer - FTP smoke test</title>
+  <HTA:APPLICATION
+    APPLICATIONNAME="QuickFtpExplorerFtpTest"
+    ID="QuickFtpExplorerFtpTest"
+    BORDER="thin"
+    SINGLEINSTANCE="yes"
+    SCROLL="yes" />
+  <link rel="stylesheet" href="../ui/styles.css" />
+  <style>
+    .test-main { padding: 16px; }
+    .row { margin-bottom: 10px; }
+    .row label { display: inline-block; min-width: 80px; }
+    input[type=text] { padding: 4px 6px; font: inherit; width: 320px; }
+    select { padding: 4px 6px; font: inherit; min-width: 320px; }
+    .spinner { display: none; margin-left: 8px; color: #0078d4; }
+    .spinner.on { display: inline; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="title">Quick FTP Explorer &mdash; FTP smoke test</div>
+    </header>
+    <main class="test-main">
+      <div class="row">
+        <label for="sc">Shortcut</label>
+        <select id="sc"></select>
+      </div>
+      <div class="row">
+        <label for="path">Remote path</label>
+        <input id="path" type="text" value="/" />
+      </div>
+      <div class="row">
+        <button id="btn-list" type="button">List</button>
+        <button id="btn-download" type="button">Download first file</button>
+        <span id="spin" class="spinner">working...</span>
+      </div>
+      <pre id="detail" class="output">(idle)</pre>
+    </main>
+  </div>
+  <script src="../ui/js/shell.js"></script>
+  <script src="../ui/js/config.js"></script>
+  <script src="../ui/js/ftp.js"></script>
+  <script>
+  (function () {
+    var scSel = document.getElementById("sc");
+    var pathInput = document.getElementById("path");
+    var detail = document.getElementById("detail");
+    var spin = document.getElementById("spin");
+    var btnList = document.getElementById("btn-list");
+    var btnDl = document.getElementById("btn-download");
+
+    var shortcuts = QFE.config.listShortcuts();
+    for (var i = 0; i < shortcuts.length; i++) {
+      var o = document.createElement("option");
+      o.value = shortcuts[i].id;
+      o.text = shortcuts[i].label + "  (" + shortcuts[i].host + ":" + shortcuts[i].port + ")";
+      scSel.appendChild(o);
+    }
+
+    function currentShortcut() {
+      var id = scSel.value;
+      for (var i = 0; i < shortcuts.length; i++) if (shortcuts[i].id === id) return shortcuts[i];
+      return null;
+    }
+
+    function setBusy(on) {
+      btnList.disabled = on;
+      btnDl.disabled = on;
+      spin.className = on ? "spinner on" : "spinner";
+    }
+
+    btnList.onclick = function () {
+      var sc = currentShortcut();
+      if (!sc) { alert("Pick a shortcut first."); return; }
+      setBusy(true);
+      detail.innerText = "Listing " + QFE.ftp.buildUrl(sc, pathInput.value, true) + " ...";
+      QFE.ftp.listDir(sc, pathInput.value, function (err, text) {
+        setBusy(false);
+        if (err) { detail.innerText = "ERROR: " + err.message; return; }
+        detail.innerText = text || "(empty)";
+      });
+    };
+
+    btnDl.onclick = function () {
+      var sc = currentShortcut();
+      if (!sc) { alert("Pick a shortcut first."); return; }
+      setBusy(true);
+      detail.innerText = "Listing to find first file...";
+      QFE.ftp.listDir(sc, pathInput.value, function (err, text) {
+        if (err) { setBusy(false); detail.innerText = "LIST ERROR: " + err.message; return; }
+        // Find first non-directory entry. Column 1: "d..." for dirs, "-..." for files.
+        var lines = text.split(/\r?\n/);
+        var firstFile = null;
+        for (var i = 0; i < lines.length; i++) {
+          var ln = lines[i];
+          if (ln.charAt(0) === "-") {
+            // name is everything from column 9 onward. Extract by consuming 8 whitespace-separated tokens.
+            var rest = ln, tok, m;
+            for (var j = 0; j < 8; j++) {
+              m = /^\s*\S+\s+/.exec(rest);
+              if (!m) break;
+              rest = rest.substring(m[0].length);
+            }
+            firstFile = rest;
+            break;
+          }
+        }
+        if (!firstFile) { setBusy(false); detail.innerText = "No regular file found at that path."; return; }
+
+        var remote = pathInput.value.replace(/\/$/, "") + "/" + firstFile;
+        var localName = firstFile.replace(/[^A-Za-z0-9._-]/g, "_");
+        var localPath = QFE.shell.absPath("config\\temp\\dl_" + (new Date().getTime()) + "_" + localName);
+        detail.innerText = "Downloading " + remote + " -> " + localPath + " ...";
+        QFE.ftp.download(sc, remote, localPath, function (dlErr) {
+          setBusy(false);
+          if (dlErr) { detail.innerText = "DOWNLOAD ERROR: " + dlErr.message; return; }
+          var size = QFE.shell.fso.GetFile(localPath).Size;
+          detail.innerText = "OK. Downloaded " + size + " bytes to " + localPath
+            + "\n\nClick to open externally:\n  open.bat \"" + localPath + "\"";
+        });
+      });
+    };
+  })();
+  </script>
+</body>
+</html>

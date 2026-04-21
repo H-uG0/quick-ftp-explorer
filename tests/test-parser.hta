@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta charset="utf-8" />
+  <title>Quick FTP Explorer - parser tests</title>
+  <HTA:APPLICATION
+    APPLICATIONNAME="QuickFtpExplorerParserTests"
+    ID="QuickFtpExplorerParserTests"
+    BORDER="thin"
+    SINGLEINSTANCE="yes"
+    SCROLL="yes" />
+  <link rel="stylesheet" href="../ui/styles.css" />
+  <style>
+    .test-main { padding: 16px; }
+    .assertion { padding: 4px 8px; border-left: 3px solid #ccc; margin: 2px 0; font-family: Consolas, monospace; font-size: 12px; }
+    .assertion.pass { border-left-color: #2e7d32; background: #e8f5e9; }
+    .assertion.fail { border-left-color: #c62828; background: #ffebee; }
+    table.entries { border-collapse: collapse; margin-top: 10px; font-family: Consolas, monospace; font-size: 12px; }
+    table.entries td, table.entries th { padding: 3px 8px; border-bottom: 1px solid #eee; text-align: left; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="title">Quick FTP Explorer &mdash; parser tests</div>
+    </header>
+    <main class="test-main">
+      <button id="btn-run" type="button">Run tests</button>
+      <div id="results"></div>
+      <h4>Parsed entries from fixture</h4>
+      <div id="parsed"></div>
+    </main>
+  </div>
+  <script src="../ui/js/shell.js"></script>
+  <script src="../ui/js/ftp.js"></script>
+  <script>
+  (function () {
+    var results = document.getElementById("results");
+    var parsed = document.getElementById("parsed");
+
+    function log(msg, ok) {
+      var el = document.createElement("div");
+      el.className = "assertion " + (ok ? "pass" : "fail");
+      el.innerText = (ok ? "PASS " : "FAIL ") + msg;
+      results.appendChild(el);
+    }
+    function clear() { results.innerHTML = ""; parsed.innerHTML = ""; }
+
+    function find(entries, name) {
+      for (var i = 0; i < entries.length; i++) if (entries[i].name === name) return entries[i];
+      return null;
+    }
+
+    function renderTable(entries) {
+      var html = '<table class="entries"><tr><th>name</th><th>isDir</th><th>isLink</th><th>size</th><th>date</th></tr>';
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        html += '<tr><td>' + escapeHtml(e.name) + '</td><td>' + e.isDir + '</td><td>' + e.isLink + '</td><td>' + e.size + '</td><td>' + escapeHtml(e.date) + '</td></tr>';
+      }
+      html += '</table>';
+      parsed.innerHTML = html;
+    }
+    function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+    function run() {
+      clear();
+      var raw = QFE.shell.readText(QFE.shell.absPath("tests\\fixtures\\listing-unix.txt"));
+      if (!raw) { log("fixture missing: tests/fixtures/listing-unix.txt", false); return; }
+
+      var entries = QFE.ftp.parseListing(raw);
+      renderTable(entries);
+
+      var passed = 0, failed = 0;
+      function a(name, cond) { (cond ? passed++ : failed++); log(name, !!cond); }
+
+      a("skips . and ..", !find(entries, ".") && !find(entries, ".."));
+      a("skips 'total N' header", true); // implicitly: absence of spurious entries below
+      a("returns 8 real entries", entries.length === 8);
+
+      var images = find(entries, "Images");
+      a("folder: Images present", !!images);
+      a("folder: Images isDir=true", images && images.isDir === true);
+      a("folder: Images isLink=false", images && images.isLink === false);
+
+      var accents = find(entries, "Dossier avec accents éàü");
+      a("folder with accents + spaces", !!accents);
+
+      var plain = find(entries, "file-with-no-spaces.mp4");
+      a("file: no spaces, size parsed", plain && plain.size === 22509 && plain.isDir === false);
+
+      var spaces = find(entries, "file with several spaces.mp4");
+      a("file: multiple spaces in name", !!spaces && spaces.size === 33333);
+
+      var accentFile = find(entries, "report with accents éàü.pdf");
+      a("file: accented + spaces + HH:MM time column", !!accentFile && accentFile.size === 123456);
+
+      var empty = find(entries, "empty.txt");
+      a("file: size 0 parsed as 0", !!empty && empty.size === 0);
+
+      var link = find(entries, "latest");
+      a("symlink: target stripped from name", !!link);
+      a("symlink: isLink=true", link && link.isLink === true);
+
+      log("Total: " + passed + " passed, " + failed + " failed", failed === 0);
+    }
+
+    document.getElementById("btn-run").onclick = run;
+    run();  // auto-run on open
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta charset="utf-8" />
+  <title>Quick FTP Explorer</title>
+  <HTA:APPLICATION
+    APPLICATIONNAME="QuickFtpExplorer"
+    ID="QuickFtpExplorer"
+    VERSION="0.5"
+    BORDER="thin"
+    BORDERSTYLE="normal"
+    SINGLEINSTANCE="yes"
+    SCROLL="no"
+    INNERBORDER="no"
+    CONTEXTMENU="no"
+    SELECTION="no"
+    WINDOWSTATE="normal" />
+  <link rel="stylesheet" href="ui/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">Quick FTP Explorer</span>
+      </div>
+      <nav id="breadcrumb" class="breadcrumb">
+        <span class="bc-segment muted">Select a shortcut</span>
+      </nav>
+      <div class="search">
+        <input type="text" id="search" placeholder="Search..." autocomplete="off" />
+      </div>
+    </header>
+
+    <div class="panels">
+      <aside id="left-pane" class="pane pane-left">
+        <div class="pane-header">
+          <span class="pane-title">Shortcuts</span>
+        </div>
+        <ul id="shortcut-list" class="shortcut-list"></ul>
+        <p id="empty-hint" class="muted empty-hint hidden">
+          No shortcuts yet. Right-click here and choose <em>New shortcut&hellip;</em> to create one.
+        </p>
+      </aside>
+
+      <div id="splitter" class="splitter" title="Drag to resize"></div>
+
+      <section id="right-pane" class="pane pane-right">
+        <div id="file-list" class="file-list">
+          <p class="placeholder muted">Select a shortcut to browse its files.</p>
+        </div>
+      </section>
+    </div>
+
+    <div id="spinner" class="spinner hidden" aria-live="polite">
+      <span class="spinner-ring"></span>
+      <span class="spinner-text">Loading&hellip;</span>
+    </div>
+
+    <footer class="statusbar">
+      <span id="status-info" class="muted"></span>
+      <span id="status-defaults" class="muted"></span>
+    </footer>
+
+    <div id="ctx-menu" class="ctx-menu hidden" role="menu">
+      <div class="ctx-item" data-action="new">New shortcut&hellip;</div>
+      <div class="ctx-item ctx-item-delete" data-action="delete">Delete shortcut</div>
+    </div>
+
+    <div id="sc-modal" class="modal hidden" role="dialog" aria-labelledby="sc-modal-title">
+      <div class="modal-box">
+        <h3 id="sc-modal-title">New shortcut</h3>
+        <form id="sc-form">
+          <div class="field">
+            <label for="f-username">Username</label>
+            <input id="f-username" name="username" type="text" required autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="f-custom">Custom label text <span class="muted">(optional)</span></label>
+            <input id="f-custom" name="customText" type="text" autocomplete="off"
+                   placeholder="e.g. Main office NVR" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="f-host">Host</label>
+              <input id="f-host" name="host" type="text" required autocomplete="off" />
+            </div>
+            <div class="field field-port">
+              <label for="f-port">Port</label>
+              <input id="f-port" name="port" type="number" min="1" max="65535" required />
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-password">Password <span class="muted">(defaults to username)</span></label>
+            <input id="f-password" name="password" type="text" autocomplete="off" />
+          </div>
+          <div class="field muted preview">
+            Label preview: <span id="f-preview"></span>
+          </div>
+          <div class="modal-actions">
+            <button type="button" id="sc-cancel" class="btn-secondary">Cancel</button>
+            <button type="submit" id="sc-save">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="ui/js/shell.js"></script>
+  <script src="ui/js/config.js"></script>
+  <script src="ui/js/ftp.js"></script>
+  <script src="ui/js/ui.js"></script>
+  <script src="ui/js/viewer.js"></script>
+  <script src="ui/js/app.js"></script>
+</body>
+</html>

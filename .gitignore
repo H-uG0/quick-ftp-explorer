@@ -1,0 +1,14 @@
+# Runtime defaults - auto-seeded on first launch from config.js fallbacks,
+# then user-editable. Contents may be deployment-specific, so never track.
+config/data.csv
+
+# User-created shortcuts (one .json per shortcut; may contain credentials).
+config/shortcuts/*
+!config/shortcuts/.gitkeep
+
+# Runtime downloads - wiped on app start/exit.
+config/temp/*
+!config/temp/.gitkeep
+
+# Dist artifacts.
+dist/
