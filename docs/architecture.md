@@ -161,11 +161,26 @@ goes straight through `QFE.ftp.openExternally`, which is a plain
 `start "" "<local-path>"` so the user's default app handles playback /
 rendering.
 
-## Context menu + new-shortcut modal
+## Context menu + new/edit-shortcut modal
 
 Right-click anywhere in the left pane shows a floating menu clamped to the
-viewport. "New shortcut" is always available; "Delete shortcut" is enabled
-only when the right-clicked target is a shortcut root row. The modal
-prefills host/port from `config/data.csv`. Password auto-mirrors the username
-field until the user overrides it; the label preview is formed as
-`username + " " + custom text`.
+viewport. "New shortcut" is always available; "Edit shortcut" and
+"Delete shortcut" are enabled only when the right-clicked target is a
+shortcut root row.
+
+The same modal serves both New and Edit, dispatched on the `editingId`
+state variable (`null` = New, otherwise the id of the shortcut being
+edited). On submit, the handler:
+
+1. Validates `username` and `host`.
+2. If `editingId` is set and the sanitized new username differs from
+   `editingId`, deletes the old JSON file first &mdash; a rename is a
+   clean delete-then-save so no stale file survives.
+3. Writes the new JSON.
+4. If the rename invalidated the current selection, clears it; otherwise
+   the tree preserves its expand state via `QFE.ui.setShortcuts`.
+
+The modal prefills host/port from `config/data.csv` for New, and from the
+shortcut's own values for Edit. Password auto-mirrors the username field
+only in New-shortcut mode; in Edit mode, `_touched` is set true so the
+original password is never silently overwritten.

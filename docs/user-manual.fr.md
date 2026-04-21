@@ -163,15 +163,17 @@ Deux informations :
 
 ---
 
-## 6. Créer un raccourci
+## 6. Créer et modifier des raccourcis
 
-Deux méthodes.
+Trois façons de gérer les raccourcis : création via l'interface, modification
+via l'interface, ou édition directe des fichiers JSON. La **suppression**
+a sa propre section ([§7](#7-supprimer-un-raccourci)).
 
-### 6.1 Depuis l'interface (recommandé)
+### 6.1 Création via l'interface (recommandé)
 
 1. **Clic droit** n'importe où dans le panneau de gauche.
 2. Dans le menu contextuel, cliquez sur **New shortcut&hellip;**.
-3. Remplissez la boîte de dialogue :
+3. Remplissez la boîte de dialogue (titre : _New shortcut_) :
    - **Username** (Nom d'utilisateur) : le compte FTP. _Requis._
    - **Custom label text** (Texte personnalisé) : une description libre
      ajoutée au libellé (par ex. `Main office NVR`). Facultatif.
@@ -193,11 +195,11 @@ Le nouveau raccourci apparaît dans le panneau de gauche, trié
 alphabétiquement par libellé.
 
 Le fichier `config/shortcuts/<username>.json` est écrit lors de
-l'enregistrement ; il contient le libellé, l'hôte, le port, le nom
+l'enregistrement. Il contient le libellé, l'hôte, le port, le nom
 d'utilisateur et le mot de passe au format JSON. Voir
 [§13 Référence des fichiers](#13-référence-des-fichiers-et-dossiers).
 
-### 6.2 En créant le fichier JSON manuellement
+### 6.2 Création en écrivant le fichier JSON à la main
 
 Pour créer de nombreux raccourcis par programme, déposez directement des
 fichiers JSON dans `config/shortcuts/`. Chaque fichier a cette structure :
@@ -218,6 +220,51 @@ remplacés par `_`.
 
 Les nouveaux fichiers sont pris en compte au prochain lancement ou à toute
 opération qui relit la liste des raccourcis.
+
+### 6.3 Modifier un raccourci existant
+
+Faites un **clic droit** sur la ligne racine d'un raccourci dans le panneau
+de gauche (la ligne de premier niveau, avec l'icône serveur &mdash; pas un
+dossier ni un fichier). Dans le menu contextuel, cliquez sur
+**Edit shortcut&hellip;**. La même boîte de dialogue s'ouvre, mais :
+
+- Son titre indique **Edit shortcut**.
+- Tous les champs sont pré-remplis avec les valeurs actuelles du
+  raccourci.
+- Le champ **Custom label text** contient ce qui suit le nom d'utilisateur
+  dans le libellé courant (voir §6.1 pour la règle de formation du
+  libellé). Si le libellé ne commence pas par `<username> `, le libellé
+  entier est placé dans le champ personnalisé ; ajustez-le avant
+  d'enregistrer.
+- Le champ **Password** affiche le mot de passe courant en clair. Il ne
+  recopie plus automatiquement les modifications du nom d'utilisateur
+  &mdash; ce que vous tapez ici fait foi.
+
+Modifiez les champs voulus puis cliquez sur **Save**.
+
+**Comportement à l'enregistrement :**
+
+- Si vous gardez le même **Username**, le fichier JSON existant est
+  écrasé avec les nouvelles valeurs. L'arbre conserve son état
+  d'expansion, et votre sélection courante est maintenue si elle
+  appartient à ce raccourci.
+- Si vous changez le **Username**, l'ancien
+  `config/shortcuts/<old-id>.json` est **supprimé** et un nouveau
+  `config/shortcuts/<new-id>.json` est créé. Cela équivaut à un
+  renommage. L'identité du raccourci ayant changé, tout état d'affichage
+  en cours pour lui est effacé ; recliquez sur le raccourci pour relancer
+  la navigation. Les sous-dossiers déjà ouverts devront être re-récupérés
+  (le cache mémoire est indexé par l'identifiant du raccourci).
+
+**Annuler :** cliquez sur **Cancel**, appuyez sur **Échap**, ou cliquez à
+l'extérieur de la fenêtre modale. Aucune modification n'est écrite.
+
+**Alternative (utilisateurs avancés) :** que l'application soit fermée ou
+non, ouvrez `config/shortcuts/<id>.json` dans un éditeur de texte,
+modifiez les champs puis enregistrez. Les changements prennent effet à
+la prochaine opération qui relit la liste des raccourcis (sélection
+d'un autre raccourci, création ou suppression, redémarrage de
+l'application).
 
 ---
 

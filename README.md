@@ -20,9 +20,10 @@ install.
   audio, archives, anything else &mdash; downloads to `config/temp/` and
   opens with the OS default app. `config/temp/` is wiped on app start and
   exit, so nothing piles up on disk.
-- **Right-click shortcut management.** Right-click in the left pane to create
-  a new shortcut (the modal is prefilled with `config/data.csv` defaults and
-  auto-mirrors password = username) or to delete one.
+- **Right-click shortcut management.** Right-click in the left pane to
+  create, **edit** (same modal, prefilled; rename = safe delete-and-recreate),
+  or delete a shortcut. New-shortcut modal is prefilled with
+  `config/data.csv` defaults and auto-mirrors password = username.
 
 ## Install
 

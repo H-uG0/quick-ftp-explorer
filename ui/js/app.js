@@ -188,10 +188,11 @@
   searchInput.onkeyup = onSearch;
   searchInput.onchange = onSearch;
 
-  /* ---- context menu + new/delete shortcut ---- */
-  var ctxMenu = document.getElementById("ctx-menu");
+  /* ---- context menu + new/edit/delete shortcut ---- */
+  var ctxMenu   = document.getElementById("ctx-menu");
+  var ctxNew    = ctxMenu.querySelector('[data-action="new"]');
+  var ctxEdit   = ctxMenu.querySelector('[data-action="edit"]');
   var ctxDelete = ctxMenu.querySelector(".ctx-item-delete");
-  var ctxNew = ctxMenu.querySelector('[data-action="new"]');
   var ctxTargetShortcut = null;
 
   function setCtxHidden(hidden) {
@@ -225,12 +226,10 @@
     var rootLi = findShortcutRootLi(target);
     ctxTargetShortcut = rootLi ? shortcutByKey(rootLi.getAttribute("data-key")) : null;
 
-    // Enable/disable "Delete" based on whether a shortcut was right-clicked.
-    if (ctxTargetShortcut) {
-      ctxDelete.className = "ctx-item ctx-item-delete";
-    } else {
-      ctxDelete.className = "ctx-item ctx-item-delete disabled";
-    }
+    // Enable "Edit" and "Delete" only when a shortcut row was right-clicked.
+    var perShortcutClass = ctxTargetShortcut ? "" : " disabled";
+    ctxEdit.className   = "ctx-item ctx-item-edit"   + perShortcutClass;
+    ctxDelete.className = "ctx-item ctx-item-delete" + perShortcutClass;
 
     var x = (e.clientX || 0);
     var y = (e.clientY || 0);
@@ -257,7 +256,13 @@
   ctxNew.onclick = function (e) {
     if ((ctxNew.className || "").indexOf("disabled") >= 0) return;
     setCtxHidden(true);
-    openShortcutModal();
+    openShortcutModal(null);
+    if (e && e.stopPropagation) e.stopPropagation();
+  };
+  ctxEdit.onclick = function (e) {
+    if ((ctxEdit.className || "").indexOf("disabled") >= 0) return;
+    setCtxHidden(true);
+    if (ctxTargetShortcut) openShortcutModal(ctxTargetShortcut);
     if (e && e.stopPropagation) e.stopPropagation();
   };
   ctxDelete.onclick = function (e) {
@@ -277,28 +282,55 @@
     if (e && e.stopPropagation) e.stopPropagation();
   };
 
-  /* ---- new-shortcut modal ---- */
-  var modal     = document.getElementById("sc-modal");
-  var form      = document.getElementById("sc-form");
-  var fUsername = document.getElementById("f-username");
-  var fCustom   = document.getElementById("f-custom");
-  var fHost     = document.getElementById("f-host");
-  var fPort     = document.getElementById("f-port");
-  var fPassword = document.getElementById("f-password");
-  var fPreview  = document.getElementById("f-preview");
-  var btnCancel = document.getElementById("sc-cancel");
+  /* ---- new / edit shortcut modal ---- */
+  var modal      = document.getElementById("sc-modal");
+  var modalTitle = document.getElementById("sc-modal-title");
+  var form       = document.getElementById("sc-form");
+  var fUsername  = document.getElementById("f-username");
+  var fCustom    = document.getElementById("f-custom");
+  var fHost      = document.getElementById("f-host");
+  var fPort      = document.getElementById("f-port");
+  var fPassword  = document.getElementById("f-password");
+  var fPreview   = document.getElementById("f-preview");
+  var btnCancel  = document.getElementById("sc-cancel");
+  var editingId  = null;  // id of the shortcut being edited, or null for "new"
 
-  function openShortcutModal() {
+  // Split a saved label back into (username, custom) so Edit prefills sensibly.
+  //   "main-nvr Main office" + username "main-nvr" -> custom "Main office"
+  //   "main-nvr"             + username "main-nvr" -> custom ""
+  //   arbitrary text         + any username        -> custom = full label
+  function splitLabel(label, username) {
+    var prefix = username + " ";
+    if (label === username) return "";
+    if (label.indexOf(prefix) === 0) return label.substring(prefix.length);
+    return label;
+  }
+
+  function openShortcutModal(existing) {
     var d = QFE.config.readDefaults();
-    fUsername.value = "";
-    fCustom.value   = "";
-    fHost.value     = d.default_host;
-    fPort.value     = d.default_port;
-    fPassword.value = "";
+    if (existing) {
+      editingId = existing.id;
+      modalTitle.innerText = "Edit shortcut";
+      fUsername.value = existing.username;
+      fCustom.value   = splitLabel(existing.label, existing.username);
+      fHost.value     = existing.host;
+      fPort.value     = existing.port;
+      fPassword.value = existing.password;
+      // Password shown as-is; don't auto-mirror on subsequent username edits.
+      fPassword._touched = true;
+    } else {
+      editingId = null;
+      modalTitle.innerText = "New shortcut";
+      fUsername.value = "";
+      fCustom.value   = "";
+      fHost.value     = d.default_host;
+      fPort.value     = d.default_port;
+      fPassword.value = "";
+      fPassword._touched = false;
+    }
     updatePreview();
     modal.className = modal.className.replace(/\s*\bhidden\b/g, "");
-    // Focus the first empty field.
-    setTimeout(function () { fUsername.focus(); }, 0);
+    setTimeout(function () { fUsername.focus(); fUsername.select(); }, 0);
   }
   function closeModal() {
     if ((modal.className || "").indexOf("hidden") < 0) {
@@ -335,6 +367,14 @@
     if (!username) { alert("Username is required."); fUsername.focus(); return false; }
     if (!host)     { alert("Host is required.");     fHost.focus();     return false; }
     var label = custom ? (username + " " + custom) : username;
+
+    // Editing with a renamed username means a different shortcut file. Drop
+    // the old one so we never leave stale JSON behind.
+    var newId = QFE.config.sanitizeId(username);
+    if (editingId && editingId !== newId) {
+      QFE.config.deleteShortcut(editingId);
+    }
+
     try {
       QFE.config.saveShortcut({
         label: label, host: host, port: port, username: username, password: password
@@ -343,6 +383,15 @@
       alert("Save failed: " + err.message);
       return false;
     }
+
+    // If the user was browsing the shortcut whose id changed, the old tree
+    // node is now stale. Clearing the selection keeps the UI honest.
+    if (editingId && editingId !== newId && currentSel && currentSel.shortcut.id === editingId) {
+      currentSel = null;
+      renderBreadcrumb(null);
+      QFE.files.render(rightPane, null, null, currentFilter);
+    }
+    editingId = null;
     closeModal();
     loadShortcuts();
     return false;

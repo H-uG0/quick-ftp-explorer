@@ -150,15 +150,16 @@ Two pieces of information:
 
 ---
 
-## 6. Creating a shortcut
+## 6. Creating and editing shortcuts
 
-There are two ways to add a shortcut.
+Three ways to work with shortcuts: create via the UI, edit via the UI, or
+hand-edit the JSON files. **Delete** has its own section ([§7](#7-deleting-a-shortcut)).
 
-### 6.1 Via the user interface (recommended)
+### 6.1 Creating via the user interface (recommended)
 
 1. **Right-click** anywhere in the left panel.
-2. In the context menu that appears, click **New shortcut&hellip;**.
-3. Fill the modal dialog:
+2. In the context menu, click **New shortcut&hellip;**.
+3. Fill the modal dialog (title: _New shortcut_):
    - **Username:** the FTP account name. _Required._
    - **Custom label text:** a free-form description appended to the label
      (e.g. `Main office NVR`). Optional.
@@ -175,11 +176,11 @@ There are two ways to add a shortcut.
 
 The new shortcut appears in the left panel, sorted alphabetically by label.
 
-The file `config/shortcuts/<username>.json` is written on save; it contains
+The file `config/shortcuts/<username>.json` is written on save. It contains
 the label, host, port, username, and password as plain JSON. See
 [§13 Files and folders reference](#13-files-and-folders-reference).
 
-### 6.2 By creating the JSON file manually
+### 6.2 Creating by writing the JSON file manually
 
 If you need to create many shortcuts programmatically, you can drop JSON
 files directly into `config/shortcuts/`. Each file has this shape:
@@ -199,6 +200,46 @@ alphanumerics plus `.`, `_`, `-`. Other characters are replaced with `_`.
 
 The app picks up new files on its next launch or on any operation that
 re-reads the shortcuts list.
+
+### 6.3 Editing an existing shortcut
+
+Right-click on a **shortcut root row** in the left panel (the top-level row
+with the server icon, not a folder or file). In the context menu, click
+**Edit shortcut&hellip;**. The same modal opens, but:
+
+- Its title reads **Edit shortcut**.
+- Every field is prefilled with the shortcut's current values.
+- The **Custom label text** field shows whatever trails the username in the
+  current label (see §6.1 for how labels are formed). If the label does not
+  start with `<username> `, the full label is placed in the custom text
+  field; fix it up as needed before saving.
+- The **Password** field shows the current password as plain text. It
+  does not auto-mirror subsequent username edits &mdash; whatever you type
+  here wins.
+
+Edit any field and click **Save**.
+
+**Behaviour on save:**
+
+- If you keep the same **Username**, the existing JSON file is overwritten
+  with the new values. The tree preserves its expand state and your current
+  selection is kept if it belongs to this shortcut.
+- If you change the **Username**, the old `config/shortcuts/<old-id>.json`
+  is **deleted** and a new `config/shortcuts/<new-id>.json` is written. This
+  is effectively a rename. Because the shortcut's identity changes, any
+  currently displayed browsing state for it is cleared; re-click the
+  shortcut to start browsing it again. Sub-folders you had already
+  expanded will need to be re-fetched (the in-memory cache is keyed by
+  shortcut id).
+
+**Cancelling:** click **Cancel**, press **Esc**, or click outside the
+modal. No change is written.
+
+**Alternative (power users):** with the app closed (or even running),
+open `config/shortcuts/<id>.json` in a text editor, change the fields,
+and save. Changes take effect on the next operation that re-reads the
+shortcuts list (selecting another shortcut, creating or deleting one,
+or restarting the app).
 
 ---
 
