@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in · Quick FTP Explorer</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="card-page">
+  <main class="card">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-name">Quick FTP Explorer</span>
+    </div>
+    <form method="post" action="/login">
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username"
+               autocapitalize="none" spellcheck="false" required autofocus />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn-block">Sign in</button>
+    </form>
+  </main>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

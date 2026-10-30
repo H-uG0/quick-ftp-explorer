@@ -1,0 +1,17 @@
+{
+  "name": "quick-ftp-explorer",
+  "version": "1.0.0-dev",
+  "description": "Small self-hosted web app to browse saved FTP shortcuts and open the files they contain.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --env-file-if-exists=.env --watch-path=server --watch-path=public server/index.js",
+    "cli": "node --env-file-if-exists=.env server/cli.js",
+    "test": "node --test \"tests/**/*.test.js\""
+  }
+}

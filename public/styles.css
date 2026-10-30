@@ -1,0 +1,116 @@
+/* Quick FTP Explorer - File-Explorer-inspired styles. */
+
+:root {
+  --accent: #0078d4;
+  --accent-hover: #106ebe;
+  --accent-active: #005a9e;
+  --text: #1f1f1f;
+  --text-soft: #4a4a4a;
+  --muted: #6b6b6b;
+  --bg: #f3f3f3;
+  --surface: #fff;
+  --border: #d9d9d9;
+  --border-input: #cfcfcf;
+  --danger: #b02020;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* ---- brand ---- */
+
+.brand {
+  display: flex;
+  align-items: center;
+}
+.brand-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 8px;
+}
+.brand-name { font-weight: 600; }
+
+/* ---- buttons ---- */
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 6px 14px;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+}
+button:hover { background: var(--accent-hover); }
+button:active { background: var(--accent-active); }
+button:disabled { background: #c7d3de; cursor: default; }
+
+.btn-secondary {
+  background: #f0f0f0;
+  color: var(--text);
+  border: 1px solid var(--border-input);
+}
+.btn-secondary:hover { background: #e4e4e4; }
+.btn-block { width: 100%; padding: 8px 14px; }
+
+/* ---- form fields ---- */
+
+.field { margin-bottom: 12px; }
+.field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-bottom: 3px;
+}
+.field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border-input);
+  border-radius: 2px;
+  font: inherit;
+}
+.field input:focus { border-color: var(--accent); outline: none; }
+
+.form-error {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  color: var(--danger);
+  background: #fdecec;
+  border-left: 3px solid var(--danger);
+}
+
+/* ---- centered card pages (sign-in) ---- */
+
+.card-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 340px;
+  margin: 16px;
+  padding: 24px 24px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+}
+.card .brand { margin-bottom: 18px; font-size: 15px; }
+
+/* ---- utilities ---- */
+
+.muted { color: var(--muted); }
+[hidden] { display: none !important; }
