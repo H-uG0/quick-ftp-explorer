@@ -61,6 +61,17 @@ describe("pages, static files and headers", () => {
     }
   });
 
+  test("a browser tab gets a readable, escaped error page instead of JSON", async () => {
+    const res = await t.request("/api/nope<script>", { headers: { accept: "text/html,application/xhtml+xml,*/*;q=0.8" } });
+    assert.equal(res.status, 404);
+    assert.match(res.headers.get("content-type"), /^text\/html/);
+    const html = await res.text();
+    assert.match(html, /Not found/);
+    assert.doesNotMatch(html, /<script>/);
+    // Scripts (fetch, <img>, <video>) keep getting JSON.
+    assert.match((await t.request("/api/nope")).headers.get("content-type"), /^application\/json/);
+  });
+
   test("unknown methods on known paths get 405; odd request targets get 400", async () => {
     assert.equal((await t.request("/api/me", { method: "DELETE" })).status, 405);
     const raw = await new Promise((resolve, reject) => {

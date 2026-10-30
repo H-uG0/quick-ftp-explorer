@@ -139,6 +139,27 @@ export function redirect(res, location, status = 303) {
   res.end();
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+// For a browser tab (a PDF opened in a new tab, a bookmarked file URL): a
+// readable page instead of raw JSON.
+function sendErrorPage(res, status, message) {
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Error ${status} · Quick FTP Explorer</title><link rel="stylesheet" href="/styles.css"></head>
+<body class="card-page"><main class="card"><div class="brand"><span class="brand-dot"></span>
+<span class="brand-name">Quick FTP Explorer</span></div><p class="form-error">${escapeHtml(message)}</p>
+<p><a href="/">Back to the explorer</a></p></main></body></html>`;
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": Buffer.byteLength(html),
+    "Cache-Control": "no-store",
+  });
+  res.end(html);
+}
+
 /* ---- static files ---- */
 
 export async function loadStatic(dir) {
@@ -222,7 +243,10 @@ function fail(ctx, err) {
   const status = err instanceof HttpError ? err.status : 500;
   if (status === 500) console.error(err);
   for (const [name, value] of Object.entries(err.headers || {})) res.setHeader(name, value);
-  sendJson(res, status, { error: status === 500 ? "Internal server error" : err.message });
+  const message = status === 500 ? "Internal server error" : err.message;
+  const navigation = ctx.req.method === "GET" && /\btext\/html\b/.test(ctx.req.headers.accept || "");
+  if (navigation) sendErrorPage(res, status, message);
+  else sendJson(res, status, { error: message });
 }
 
 function logLine(ctx, status, ms, finished) {

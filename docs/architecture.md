@@ -37,6 +37,8 @@ own [architecture notes](../legacy/docs/architecture.md).
 | `server/store.js` | FTP shortcuts (`shortcuts/*.json`), validation, safe renames. |
 | `server/ftp.js` | The FTP gateway: listings and file streaming over `basic-ftp`. |
 | `public/js/filetypes.js` | What each file type is and whether it may render inline. Shared by server and browser. |
+
+The browser side is described in [Browser UI](#browser-ui).
 | `server/audit.js` | Append-only audit trail (`audit.jsonl`). |
 | `server/files.js` | Atomic writes (temp file + rename), JSON reads, JSON-stream splitting. |
 | `server/cli.js` | Account administration and shortcut import from the server's shell. |
@@ -60,8 +62,11 @@ Every request goes through `createHandler` in `server/http.js`:
    or `admin` (403 for other roles).
 7. The handler runs. A returned value is sent as JSON; a thrown `HttpError`
    becomes `{ "error": "..." }` with its status; anything else is a logged
-   500. An error after the response started aborts the connection, so a
-   client never mistakes a broken response for a complete one.
+   500. A browser navigation (`GET` with `Accept: text/html`, for example a
+   PDF opened in a new tab) gets the same message as a small, escaped HTML
+   page instead of raw JSON. An error after the response started aborts
+   the connection, so a client never mistakes a broken response for a
+   complete one.
 8. One log line per request goes to stdout: time, client IP, user, method,
    URL, status (`(aborted)` if the client left early) and duration.
 
@@ -336,6 +341,65 @@ not shown:
 | connection refused, DNS failure, timeout | 504 |
 | any other FTP reply | 502, with the server's reply text |
 
+## Browser UI
+
+`public/` is served as-is: plain ES modules, no framework, no build step.
+It is a port of the HTA's `ui/`: same two-panel layout, same module
+boundaries, same behaviour, minus the IE11 workarounds (ES5, `className`
+regexes, `onmousewheel`, simulated clicks).
+
+| File | Role | HTA counterpart |
+|---|---|---|
+| `index.html` | The explorer page | `quick-ftp-explorer.hta` |
+| `login.html`, `js/login.js` | The sign-in form, and why the last attempt bounced | (none) |
+| `js/api.js` | Every server call; a 401 sends the page back to sign-in | `shell.js` + `config.js` + `ftp.js` |
+| `js/ui.js` | `tree` (left pane) and `files` (right-pane table) | `ui.js` |
+| `js/viewer.js` | Modal viewer: images (zoom / pan), video and audio | `viewer.js` (images only) |
+| `js/app.js` | Wiring: selection, breadcrumb, search, opening files, splitter, shortcut management | `app.js` |
+| `js/util.js` | Pure helpers (paths, sizes, natural sort, labels), unit-tested | (inline in `ui.js` / `app.js`) |
+| `js/filetypes.js` | File kinds and inline types, shared with the server | `kindFor` in `ui.js` |
+| `styles.css` | The File-Explorer look, in CSS custom properties | `styles.css` |
+
+**One listing per folder, shared by both panes.** `tree.listing(sc, path)`
+returns a cached promise; the tree and the right pane both use it. In the
+HTA the right pane depended on the tree having rendered the folder's node,
+which caused two bugs that are gone now:
+
+- after a failed listing, the right pane stayed on "Loading…";
+- clicking a folder while the search hid its tree node did the same.
+
+Failed listings are retried on the next request. **↻** (`tree.refresh`)
+drops one folder's listing and loads it again. Responses that arrive after
+the user moved on are ignored.
+
+**Navigation.** `tree.reveal(sc, path)` marks the shortcut, every folder on
+the way and the target as open, selects the target, and re-renders. Nodes
+fill in as their parents' listings arrive. Breadcrumb segments and folder
+rows in the table both navigate this way, so any folder can be reached
+whether or not its ancestors were open. In the HTA, the target had to be
+rendered already.
+
+**Opening a file** follows `filetypes.js`:
+
+- images, playable video and audio open in the viewer;
+- other inline types (PDF, text) open in a new tab;
+- everything else is fetched with `download=1`.
+
+The viewer uses the browser's own `<video>` / `<audio>`, which seek
+through HTTP range requests. Closing the viewer removes the media source,
+which aborts the request and so frees the FTP connection. Decode errors
+turn into a "can't play here, download it" message.
+
+**Roles in the UI.** Admins get `+ New` and a right-click menu (New / Edit
+/ Delete); everyone else keeps the browser's own context menu. Shortcut
+forms show server errors inline (400/409) instead of `alert()`. Edit leaves
+the password empty, because the stored one never reaches the browser.
+
+**Safety.** Every name that comes from an FTP server reaches the page via
+`textContent` / DOM nodes, never as HTML. The page has no inline scripts or
+styles, so it runs under the strict `default-src 'self'` CSP. Only the
+splitter width is kept in `localStorage`, as a convenience.
+
 ## Audit trail
 
 `data/audit.jsonl` gets one JSON object per line for security-relevant
@@ -384,6 +448,8 @@ dependencies:
 - `tests/shortcuts.test.js`: the shortcut API by role, no password in any
   response, the audit trail, and `cli import` run as a real subprocess.
 - `tests/filetypes.test.js`: nothing that can carry script is ever inline.
+- `tests/util.test.js`: the UI's pure helpers (natural sort, labels, sizes,
+  paths).
 - `tests/ftp.test.js`: path and range parsing, error mapping, parity with
   the legacy parser on `tests/fixtures/listing-unix.txt`, and the gateway
   against a server. Covered: the exact `CWD a` / `CWD b` / `LIST`

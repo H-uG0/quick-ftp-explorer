@@ -7,16 +7,100 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body class="card-page">
-  <main class="card">
-    <div class="brand">
-      <span class="brand-dot"></span>
-      <span class="brand-name">Quick FTP Explorer</span>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">Quick FTP Explorer</span>
+      </div>
+      <nav id="breadcrumb" class="breadcrumb" aria-label="Current folder">
+        <span class="bc-segment muted">Select a shortcut</span>
+      </nav>
+      <button type="button" id="refresh" class="btn-secondary btn-icon" title="Refresh this folder" aria-label="Refresh this folder" disabled>&#x21BB;</button>
+      <div class="search">
+        <input type="search" id="search" placeholder="Search..." autocomplete="off" aria-label="Search shortcuts and files" />
+      </div>
+    </header>
+
+    <div class="panels">
+      <aside id="left-pane" class="pane pane-left">
+        <div class="pane-header">
+          <span class="pane-title">Shortcuts</span>
+          <button type="button" id="new-shortcut" class="btn-secondary btn-sm" hidden>+ New</button>
+        </div>
+        <ul id="shortcut-list" class="shortcut-list"></ul>
+        <p id="empty-hint" class="muted empty-hint" hidden></p>
+      </aside>
+
+      <div id="splitter" class="splitter" title="Drag to resize"></div>
+
+      <section id="right-pane" class="pane pane-right">
+        <div id="file-list" class="file-list">
+          <p class="placeholder muted">Loading&hellip;</p>
+        </div>
+      </section>
     </div>
-    <p>You are signed in. The file browser is not part of this build yet.</p>
-    <form method="post" action="/logout">
-      <button type="submit" class="btn-secondary">Sign out</button>
-    </form>
-  </main>
+
+    <div id="spinner" class="spinner" aria-live="polite" hidden>
+      <span class="spinner-ring"></span>
+      <span class="spinner-text">Loading&hellip;</span>
+    </div>
+
+    <footer class="statusbar">
+      <span id="status-info" class="muted"></span>
+      <span id="status-user" class="muted"></span>
+      <form method="post" action="/logout">
+        <button type="submit" class="link-button">Sign out</button>
+      </form>
+    </footer>
+
+    <div id="ctx-menu" class="ctx-menu" role="menu" hidden>
+      <div class="ctx-item" data-action="new" role="menuitem">New shortcut&hellip;</div>
+      <div class="ctx-item" data-action="edit" role="menuitem">Edit shortcut&hellip;</div>
+      <div class="ctx-item ctx-item-delete" data-action="delete" role="menuitem">Delete shortcut</div>
+    </div>
+
+    <div id="sc-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="sc-modal-title" hidden>
+      <div class="modal-box">
+        <h3 id="sc-modal-title">New shortcut</h3>
+        <form id="sc-form">
+          <p id="sc-error" class="form-error" role="alert" hidden></p>
+          <div class="field">
+            <label for="f-username">Username</label>
+            <input id="f-username" name="username" type="text" required autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="f-custom">Custom label text <span class="muted">(optional)</span></label>
+            <input id="f-custom" name="customText" type="text" autocomplete="off" placeholder="e.g. Main office NVR" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="f-host">Host</label>
+              <input id="f-host" name="host" type="text" required autocomplete="off" />
+            </div>
+            <div class="field field-port">
+              <label for="f-port">Port</label>
+              <input id="f-port" name="port" type="number" min="1" max="65535" required />
+            </div>
+          </div>
+          <div class="field">
+            <label for="f-password">Password</label>
+            <input id="f-password" name="password" type="text" autocomplete="off" />
+            <p id="f-password-hint" class="field-hint muted"></p>
+          </div>
+          <div class="field muted preview">
+            Label preview: <span id="f-preview"></span>
+          </div>
+          <div class="modal-actions">
+            <button type="button" id="sc-cancel" class="btn-secondary">Cancel</button>
+            <button type="submit" id="sc-save">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/app.js"></script>
 </body>
 </html>
