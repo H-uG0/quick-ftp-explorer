@@ -3,3 +3,9 @@
 
 # cmd.exe batch files always check out with CRLF, whatever core.autocrlf says.
 *.bat text eol=crlf
+
+# Files used inside Linux containers always check out with LF.
+Dockerfile text eol=lf
+*.yml text eol=lf
+deploy/** text eol=lf
+.env.example text eol=lf

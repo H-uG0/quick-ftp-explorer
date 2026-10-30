@@ -1,0 +1,8 @@
+# An allowlist: the image needs only the package files, server/ and public/.
+# Everything else stays out of the build context - above all runtime data
+# (data/, .env) and the legacy app's local shortcuts, which hold FTP passwords.
+*
+!package.json
+!package-lock.json
+!server/
+!public/

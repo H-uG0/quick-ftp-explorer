@@ -1,0 +1,63 @@
+# Quick FTP Explorer behind Caddy, which obtains and renews the HTTPS
+# certificate automatically. Full guide: docs/deployment.md.
+#
+#   cp .env.example .env              # then set DOMAIN (and the rest) in .env
+#   docker compose up -d --build
+#   docker compose exec app node server/cli.js user add <name> --admin
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true                        # forwards SIGTERM, reaps zombies
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATA_DIR: /data
+      TRUST_PROXY: "1"                # safe: no published port, only Caddy reaches the app
+    volumes:
+      - qfe-data:/data
+    # Hardening: only /data (and a scratch /tmp) is writable; no Linux
+    # capabilities; no privilege escalation; bounded memory.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"                 # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env, e.g. DOMAIN=files.example.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data              # certificates: keep this volume
+      - caddy-config:/config
+    logging: *logging
+
+volumes:
+  qfe-data:
+  caddy-data:
+  caddy-config:

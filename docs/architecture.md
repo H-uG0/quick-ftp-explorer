@@ -478,5 +478,20 @@ serves a local folder instead, e.g. real clips to try video seeking.
   (shortcut JSON, `data.csv`, `data/`, `.env`) or any routable IPv4 address.
   It exists because of the 2026-04-21 leak.
 
+- `tests/deploy.test.js`: guards on the deployment files. The
+  `.dockerignore` allowlist, no blanket `COPY`, a non-root user, the app
+  service unpublished and hardened, and Caddy's keep-alive below the app's.
+
 CI (`.github/workflows/test.yml`) runs the suite on Node 22 and 24 for every
 push and pull request.
+
+## Deployment
+
+See the [deployment guide](deployment.md). In short:
+
+- `Dockerfile`: `node:24-alpine`, production dependencies only, code owned
+  by root, the app runs as `node`, health check on `/healthz`.
+- `docker-compose.yml`: the app (not published, read-only filesystem, no
+  capabilities, `no-new-privileges`, 512 MB, `TRUST_PROXY=1`, a `qfe-data`
+  volume) behind Caddy (`deploy/Caddyfile`), which serves `DOMAIN` with an
+  automatic certificate. Logs rotate at 5 × 10 MB.

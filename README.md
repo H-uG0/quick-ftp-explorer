@@ -59,13 +59,24 @@ To bring your HTA shortcuts along:
 
 ## Deploying
 
-Deployment on a VPS (Docker Compose with automatic HTTPS) is documented in
-the next milestone. Until then, `npm start` runs the server; put it behind
-an HTTPS reverse proxy and set `TRUST_PROXY=1`.
+On a Linux server with Docker and a domain name pointing at it:
+
+```
+git clone https://github.com/H-uG0/quick-ftp-explorer.git && cd quick-ftp-explorer
+cp .env.example .env            # set DOMAIN, DEFAULT_FTP_HOST, FTP_ALLOWED_HOSTS
+docker compose up -d --build    # the app + Caddy, which gets the HTTPS certificate
+docker compose exec app node server/cli.js user add alice --admin
+```
+
+The [deployment guide](docs/deployment.md) covers what it doesn't:
+preparing the FTP server now that all users connect from one IP, importing
+the HTA's shortcuts, accounts, updates, backups, the audit trail, running
+behind an existing reverse proxy, and running without Docker.
 
 ## Documentation
 
 - User manual: [English](docs/user-manual.en.md) &middot; [Français](docs/user-manual.fr.md)
+- [Deployment guide](docs/deployment.md), for administrators
 - [Architecture](docs/architecture.md): request pipeline, accounts and
   sessions, the shortcut store, the FTP gateway, the browser UI,
   configuration, tests.

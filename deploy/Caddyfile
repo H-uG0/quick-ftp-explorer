@@ -1,0 +1,14 @@
+# HTTPS for {$DOMAIN} (certificate obtained and renewed automatically) in
+# front of the app. See docs/deployment.md.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8080 {
+		transport http {
+			# Must stay below the app's keepAliveTimeout (65 s, server/index.js)
+			# so Caddy, never Node, closes idle connections: otherwise a request
+			# can race a closing socket and fail with a spurious 502.
+			keepalive 30s
+		}
+	}
+	header -Server
+}
