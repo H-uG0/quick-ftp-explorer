@@ -1,25 +1,31 @@
 /*
- * routes.js - the application: wires config, accounts, the audit trail and
- * static files into the route table.
+ * routes.js - the application: wires config, accounts, shortcuts, the audit
+ * trail and static files into the route table.
  *
- *   createApp(cfg, { log }) -> { handler, users, audit }
+ *   createApp(cfg, { log }) -> { handler, users, shortcuts, audit }
  *
  * Pages:  GET /  GET /login  POST /login  POST /logout
  * API:    GET /api/me
+ *         GET /api/shortcuts                     (admins also see host, port, username)
+ *         POST /api/shortcuts  PUT|DELETE /api/shortcuts/:id   (admins only)
  * Ops:    GET /healthz
+ *
+ * FTP passwords never appear in any response.
  */
 
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
-  createHandler, loadStatic, sendFile, readForm, redirect, serializeCookie, parseCookies,
+  createHandler, loadStatic, sendFile, sendJson, readJson, readForm, redirect, serializeCookie, parseCookies,
 } from "./http.js";
 import { createUserStore, createSessions, createLimiter, loadSessionSecret } from "./auth.js";
+import { createShortcutStore } from "./store.js";
 import { createAudit } from "./audit.js";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const COOKIE = "qfe_session";
+const SHORTCUT_PATH = /^\/api\/shortcuts\/(?<id>[A-Za-z0-9._-]+)$/;
 
 export async function createApp(cfg, { log } = {}) {
   await mkdir(cfg.dataDir, { recursive: true, mode: 0o700 });
@@ -29,6 +35,9 @@ export async function createApp(cfg, { log } = {}) {
     users,
     secret: await loadSessionSecret(cfg.dataDir, cfg.sessionSecret),
     ttlHours: cfg.sessionTtlHours,
+  });
+  const shortcuts = createShortcutStore(path.join(cfg.dataDir, "shortcuts"), {
+    allowedHosts: cfg.ftpAllowedHosts,
   });
   const audit = createAudit(path.join(cfg.dataDir, "audit.jsonl"));
   const limiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
@@ -81,6 +90,39 @@ export async function createApp(cfg, { log } = {}) {
     res.end("ok\n");
   }
 
+  function me({ user }) {
+    const out = { username: user.name, role: user.role };
+    // Only admins fill in the shortcut form, so only they need its prefill.
+    if (user.role === "admin") out.defaults = { host: cfg.defaultFtpHost, port: cfg.defaultFtpPort };
+    return out;
+  }
+
+  // Browsing needs only id + label; where the FTP server lives is admin business.
+  async function listShortcuts({ user }) {
+    const all = await shortcuts.list();
+    return { shortcuts: user.role === "admin" ? all : all.map(({ id, label }) => ({ id, label })) };
+  }
+
+  async function createShortcut(ctx) {
+    const id = await shortcuts.create(await readJson(ctx.req));
+    audit("shortcut_create", { user: ctx.user.name, ip: ctx.ip, id });
+    sendJson(ctx.res, 201, { id });
+  }
+
+  async function updateShortcut(ctx) {
+    const { id } = ctx.params;
+    const newId = await shortcuts.update(id, await readJson(ctx.req));
+    audit("shortcut_update", { user: ctx.user.name, ip: ctx.ip, id, ...(newId !== id && { renamedTo: newId }) });
+    return { id: newId };
+  }
+
+  async function deleteShortcut(ctx) {
+    await shortcuts.remove(ctx.params.id);
+    audit("shortcut_delete", { user: ctx.user.name, ip: ctx.ip, id: ctx.params.id });
+    ctx.res.writeHead(204, { "Cache-Control": "no-store" });
+    ctx.res.end();
+  }
+
   /* ---- route table ---- */
 
   const routes = [
@@ -95,10 +137,11 @@ export async function createApp(cfg, { log } = {}) {
     },
     { method: "POST", path: /^\/login$/, auth: "none", handler: login },
     { method: "POST", path: /^\/logout$/, auth: "none", handler: logout },
-    {
-      method: "GET", path: /^\/api\/me$/, auth: "user",
-      handler: ({ user }) => ({ username: user.name, role: user.role }),
-    },
+    { method: "GET", path: /^\/api\/me$/, auth: "user", handler: me },
+    { method: "GET", path: /^\/api\/shortcuts$/, auth: "user", handler: listShortcuts },
+    { method: "POST", path: /^\/api\/shortcuts$/, auth: "admin", handler: createShortcut },
+    { method: "PUT", path: SHORTCUT_PATH, auth: "admin", handler: updateShortcut },
+    { method: "DELETE", path: SHORTCUT_PATH, auth: "admin", handler: deleteShortcut },
   ];
 
   const handler = createHandler({
@@ -108,5 +151,5 @@ export async function createApp(cfg, { log } = {}) {
     log,
     sessionUser: (req) => sessions.verify(parseCookies(req)[COOKIE]),
   });
-  return { handler, users, audit };
+  return { handler, users, shortcuts, audit };
 }

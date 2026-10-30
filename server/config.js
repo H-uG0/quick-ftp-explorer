@@ -23,6 +23,10 @@ function bool(value) {
   return /^(1|true|yes|on)$/i.test(String(value ?? "").trim());
 }
 
+function list(value) {
+  return String(value ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+}
+
 export function loadConfig(env = process.env) {
   const sessionSecret = env.SESSION_SECRET || "";
   if (sessionSecret && sessionSecret.length < 32) {
@@ -35,5 +39,10 @@ export function loadConfig(env = process.env) {
     trustProxy: bool(env.TRUST_PROXY),
     sessionSecret,
     sessionTtlHours: int(env.SESSION_TTL_HOURS, 12, 1, 24 * 30, "SESSION_TTL_HOURS"),
+    // Prefill for the "New shortcut" form, like the HTA's config/data.csv.
+    defaultFtpHost: env.DEFAULT_FTP_HOST || "127.0.0.1",
+    defaultFtpPort: int(env.DEFAULT_FTP_PORT, 21, 1, 65535, "DEFAULT_FTP_PORT"),
+    // Optional lockdown: when set, shortcuts may only point at these hosts.
+    ftpAllowedHosts: list(env.FTP_ALLOWED_HOSTS),
   });
 }

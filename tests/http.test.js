@@ -104,8 +104,9 @@ describe("sign-in and sessions", () => {
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("location"), "/");
     assert.match(setCookie, /^qfe_session=[^;]+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=43200$/);
-    const me = await t.request("/api/me", { headers: { cookie } });
-    assert.deepEqual(await me.json(), { username: "alice", role: "admin" });
+    const me = await (await t.request("/api/me", { headers: { cookie } })).json();
+    assert.equal(me.username, "alice");
+    assert.equal(me.role, "admin");
     const home = await t.request("/", { headers: { cookie } });
     assert.equal(home.status, 200);
     assert.equal((await t.request("/login", { headers: { cookie } })).headers.get("location"), "/");

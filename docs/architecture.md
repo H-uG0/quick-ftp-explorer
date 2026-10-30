@@ -8,7 +8,7 @@ streams files to signed-in users over HTTPS.
 ```
 browser ──HTTPS──> reverse proxy (TLS) ──HTTP──> Node app ──FTP──> FTP server
                                                     │
-                                                    └── data/  accounts, secret, audit log
+                                                    └── data/  accounts, shortcuts, secret, audit log
 ```
 
 The original Windows HTA lives in [`legacy/`](../legacy/README.md) with its
@@ -33,9 +33,10 @@ own [architecture notes](../legacy/docs/architecture.md).
 | `server/routes.js` | The application: wires the stores and builds the route table. |
 | `server/http.js` | The HTTP toolkit: dispatch, body readers, cookies, static files, security headers, request log. |
 | `server/auth.js` | Accounts (`users.json`), scrypt hashing, session tokens, login throttling. |
+| `server/store.js` | FTP shortcuts (`shortcuts/*.json`), validation, safe renames. |
 | `server/audit.js` | Append-only audit trail (`audit.jsonl`). |
-| `server/files.js` | Atomic writes (temp file + rename) and JSON reads. |
-| `server/cli.js` | Account administration from the server's shell. |
+| `server/files.js` | Atomic writes (temp file + rename), JSON reads, JSON-stream splitting. |
+| `server/cli.js` | Account administration and shortcut import from the server's shell. |
 
 ## Request pipeline
 
@@ -136,13 +137,89 @@ attempts for that client IP and for that username (even with the right
 password) until the window passes. One limit stops a single client
 guessing many accounts; the other stops many clients guessing one.
 
+## Shortcuts
+
+A shortcut is one FTP account to browse. Shortcuts are shared by everyone
+signed in, and only admins can change them. Each lives in
+`data/shortcuts/<id>.json` (mode 0600), in **exactly the legacy HTA's
+format**:
+
+```json
+{ "label": "main-nvr Main office NVR", "host": "192.0.2.10", "port": 21,
+  "username": "main-nvr", "password": "main-nvr" }
+```
+
+The id is the username made file-safe (`sanitizeId`: anything outside
+`[A-Za-z0-9._-]` becomes `_`), as in the HTA. Hand-edited files with a BOM
+are read fine; unreadable files are skipped with a warning.
+
+**Validation** (`validateShortcut`, 400 on failure):
+
+- `username` and `host` are required; `port` defaults to 21 and must be
+  1–65535; `label` defaults to the username.
+- Hosts must look like a hostname or an IP address. With
+  `FTP_ALLOWED_HOSTS` set, they must also be on that list.
+- No field may contain control characters. A CR/LF in a username, password
+  or path could otherwise smuggle extra commands into the FTP session.
+- Passwords are kept exactly as typed. A blank password means
+  "username" on create, as in the HTA, and "keep the stored one" on edit,
+  **but only while host and port stay the same**. Changing either requires
+  the password again; otherwise anyone able to edit a shortcut could point
+  it at a server they control and collect the stored password at the next
+  login.
+
+**Changes the HTA made unsafely:**
+
+- Creating a shortcut whose id exists is a 409, not a silent overwrite.
+- A rename (the username changes, so the id does) writes the new file
+  first and deletes the old one only afterwards, so a failed save never
+  loses the shortcut. Renaming onto another shortcut is a 409.
+
+### API
+
+| Method + path | Role | Response |
+|---|---|---|
+| `GET /api/shortcuts` | user | `{ shortcuts: [{ id, label }] }`; admins also get `host`, `port`, `username` |
+| `POST /api/shortcuts` | admin | 201 `{ id }` |
+| `PUT /api/shortcuts/:id` | admin | `{ id }` (the new id after a rename) |
+| `DELETE /api/shortcuts/:id` | admin | 204 |
+
+`GET /api/me` returns `{ username, role }`, plus, for admins only, the
+`defaults: { host, port }` that prefill the "New shortcut" form
+(`DEFAULT_FTP_HOST`, `DEFAULT_FTP_PORT`). FTP passwords appear in no
+response at all. Browsing only needs a label, so regular users are not even
+told where the FTP server lives.
+
+### Importing shortcuts from the HTA
+
+Because the format is the same, the HTA's `legacy/config/shortcuts/*.json`
+files import as they are. The import runs every record through the same
+validation as the API:
+
+```
+npm run cli -- import legacy/config/shortcuts            # a directory
+cat shortcuts/*.json | docker compose exec -T app \
+  node server/cli.js import -                            # stdin (Docker)
+```
+
+Shortcuts that already exist are skipped unless `--replace` is given. The
+command prints one line per skipped or failed file and a summary, and exits
+non-zero if any record failed. Reading from stdin works even when the
+container's filesystem is read-only. The JSON objects may simply be
+concatenated (`cat`), BOMs included.
+
 ## Audit trail
 
 `data/audit.jsonl` gets one JSON object per line for security-relevant
-events: `login`, `login_failed`, `login_blocked`, `logout`, each with time,
-user and client IP. CCTV footage is personal data, so who accessed what
-must be accountable. Writes are queued so lines never interleave, and a
-failed write is reported on stderr without failing the request.
+events, each with time, user and client IP:
+
+- `login`, `login_failed`, `login_blocked`, `logout`;
+- `shortcut_create`, `shortcut_update` (with `renamedTo` after a rename),
+  `shortcut_delete`, each with the shortcut `id`.
+
+Passwords are never logged. CCTV footage is personal data, so who accessed
+what must be accountable. Writes are queued so lines never interleave, and
+a failed write is reported on stderr without failing the request.
 
 ## Configuration
 
@@ -150,10 +227,13 @@ failed write is reported on stderr without failing the request.
 |---|---|---|
 | `HOST` | `127.0.0.1` | Interface to listen on (`0.0.0.0` in Docker). |
 | `PORT` | `8080` | Port to listen on. |
-| `DATA_DIR` | `./data` | Accounts, session secret and audit log. Back it up; never commit it. |
+| `DATA_DIR` | `./data` | Accounts, shortcuts, session secret and audit log. Back it up; never commit it. |
 | `TRUST_PROXY` | off | Trust `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy. |
 | `SESSION_SECRET` | generated | HMAC key for sessions (≥ 32 characters). |
 | `SESSION_TTL_HOURS` | `12` | Session lifetime. |
+| `DEFAULT_FTP_HOST` | `127.0.0.1` | Host prefilled in the "New shortcut" form. |
+| `DEFAULT_FTP_PORT` | `21` | Port prefilled in the "New shortcut" form. |
+| `FTP_ALLOWED_HOSTS` | any | Comma-separated hosts shortcuts may point at, e.g. your one FTP server. |
 
 `npm run dev` and `npm run cli` also read a local `.env` file when present.
 
@@ -164,6 +244,11 @@ dependencies:
 
 - `tests/auth.test.js`: hashing, the account store, tokens (tampering,
   expiry, revocation), the session secret, the limiter.
+- `tests/store.test.js`: the shortcut store. It ports the legacy
+  `test-config.hta` assertions (`sanitizeId`, UTF-8 round trip, CRUD) and
+  adds 409s, safe renames, the password rules and validation.
+- `tests/shortcuts.test.js`: the shortcut API by role, no password in any
+  response, the audit trail, and `cli import` run as a real subprocess.
 - `tests/http.test.js`: the real server on an ephemeral port with a
   throwaway data directory (`tests/helpers/app.js`): pages, static files,
   headers, sign-in, sign-out, throttling, proxy handling, the audit trail.

@@ -105,13 +105,17 @@ async function readBody(req) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+// Every JSON endpoint takes an object; anything else is refused up front.
 export async function readJson(req) {
   const text = await readBody(req);
+  let body;
   try {
-    return text ? JSON.parse(text) : {};
+    body = text ? JSON.parse(text) : {};
   } catch {
     throw new HttpError(400, "Malformed JSON body");
   }
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "Expected a JSON object");
+  return body;
 }
 
 export async function readForm(req) {
