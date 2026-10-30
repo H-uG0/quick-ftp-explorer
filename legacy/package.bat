@@ -1,12 +1,13 @@
 @echo off
-REM package.bat - build a distributable zip.
+REM package.bat - build a distributable zip of the legacy HTA app.
 REM
-REM Stages a clean copy of the project into dist\quick-ftp-explorer\ (no
+REM Stages a clean copy of legacy\ into dist\quick-ftp-explorer\ (no
 REM .git, no user-created shortcuts, no cached temp downloads), zips it
 REM with Windows' built-in tar.exe (ships since Windows 10 1803), and
 REM falls back to PowerShell Compress-Archive if tar is unavailable.
+REM The repository-wide LICENSE lives one level up.
 REM
-REM Result: dist\quick-ftp-explorer.zip
+REM Result: legacy\dist\quick-ftp-explorer.zip
 
 setlocal
 
@@ -21,7 +22,7 @@ mkdir "%STAGE%"
 
 copy /y "%HERE%quick-ftp-explorer.hta" "%STAGE%\"  >nul
 copy /y "%HERE%README.md"               "%STAGE%\" >nul
-copy /y "%HERE%LICENSE"                 "%STAGE%\" >nul
+copy /y "%HERE%..\LICENSE"              "%STAGE%\" >nul
 
 xcopy /e /i /q /y "%HERE%ui"      "%STAGE%\ui\"      >nul
 xcopy /e /i /q /y "%HERE%scripts" "%STAGE%\scripts\" >nul

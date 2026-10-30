@@ -1,14 +1,21 @@
-# Runtime defaults - auto-seeded on first launch from config.js fallbacks,
-# then user-editable. Contents may be deployment-specific, so never track.
-config/data.csv
+# Legacy HTA runtime defaults - auto-seeded on first launch from config.js
+# fallbacks, then user-editable. Contents may be deployment-specific, so never
+# track. Patterns match at any depth (legacy/config/ today).
+**/config/data.csv
 
 # User-created shortcuts (one .json per shortcut; may contain credentials).
-config/shortcuts/*
-!config/shortcuts/.gitkeep
+**/config/shortcuts/*
+!**/config/shortcuts/.gitkeep
 
-# Runtime downloads - wiped on app start/exit.
-config/temp/*
-!config/temp/.gitkeep
+# Legacy HTA runtime downloads - wiped on app start/exit.
+**/config/temp/*
+!**/config/temp/.gitkeep
 
-# Dist artifacts.
+# Web app runtime data (users, session secret, shortcuts, audit log) and the
+# local environment file - may contain credentials, so never track.
+data/
+.env
+
+# Dependencies and dist artifacts.
+node_modules/
 dist/

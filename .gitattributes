@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# cmd.exe batch files always check out with CRLF, whatever core.autocrlf says.
+*.bat text eol=crlf
