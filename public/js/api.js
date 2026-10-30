@@ -9,6 +9,7 @@
  *   deleteShortcut(id)
  *   listDir(id, path)                 [{ name, isDir, isLink, size, date }]
  *   fileUrl(id, path, { download })   URL for <img>, <video>, links
+ *   playUrl(id, path)                 URL of a video as an MP4 the browser can play
  *
  * Failures throw ApiError (status + the server's message). A 401 means the
  * session is over: the page goes back to the sign-in screen.
@@ -61,4 +62,8 @@ export const listDir = async (id, path) =>
 
 export function fileUrl(id, path, { download = false } = {}) {
   return `${shortcutUrl(id)}/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
+}
+
+export function playUrl(id, path) {
+  return `${shortcutUrl(id)}/play?path=${encodeURIComponent(path)}`;
 }

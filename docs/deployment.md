@@ -20,7 +20,10 @@ users ──HTTPS──> Caddy (:443) ──> app (:8080, not published) ──F
 
 - A **Linux server** (VPS) with a public IP address. 1 vCPU and 512 MB–1 GB
   of RAM are plenty. Every file a user opens streams through it, so check
-  the monthly bandwidth allowance if staff watch a lot of footage.
+  the monthly bandwidth allowance if staff watch a lot of footage. Videos
+  browsers can't play (XviD, AVI...) are converted on the server with
+  ffmpeg, which the image includes: for typical camera clips, a few seconds
+  long, that takes well under a second of CPU.
 - **Docker Engine** with the **Compose plugin** (`docker compose version`).
 - A **domain name** you can point at the server, e.g. `files.example.com`.
 - **Network access from the server to the FTP server**: the control port
@@ -78,6 +81,8 @@ it doesn't, see [§12](#12-troubleshooting).
 | `FTP_ALLOWED_HOSTS` | any | Comma-separated hosts shortcuts may point at. **Recommended**: set it to your FTP server. |
 | `FTP_MAX_CONNECTIONS` | `10` | Simultaneous FTP connections per server, all users together. |
 | `FTP_TIMEOUT_MS` | `15000` | How long the FTP server may stay silent before a request fails. |
+| `CONVERT_MAX_MB` | `50` | Largest video the server converts or plays from memory; bigger ones are download-only. The server holds such a video in memory while it works, within the 512 MB limit of `docker-compose.yml`. |
+| `FFMPEG_PATH` | `ffmpeg` | Only without Docker: where ffmpeg is, if it isn't on the `PATH`. |
 | `SESSION_TTL_HOURS` | `12` | How long a sign-in lasts. |
 | `SESSION_SECRET` | generated | Leave unset: a random secret is created in the data volume. Changing it signs everybody out. |
 
@@ -150,7 +155,9 @@ docker compose pull caddy
 docker compose up -d
 ```
 
-Sessions survive the update; nobody has to sign in again.
+Sessions survive the update; nobody has to sign in again. Now and then,
+build with `--pull --no-cache` instead: that also installs the latest
+ffmpeg, whose layer Docker otherwise reuses until the base image changes.
 
 ---
 
@@ -216,8 +223,11 @@ docker compose exec -T app sh -c ': > /data/audit.jsonl'
 
 ## 10. Without Docker
 
-1. Install **Node.js 22 or newer** and **Caddy** from your distribution's
-   or the vendors' packages.
+1. Install **Node.js 22 or newer**, **Caddy** and **ffmpeg** from your
+   distribution's or the vendors' packages (`sudo apt install ffmpeg` on
+   Debian and Ubuntu). Without ffmpeg the app still works, but videos
+   browsers can't play are download-only; the service log says so at
+   startup.
 2. Install the app, without development files, as an unprivileged user:
 
    ```
@@ -252,6 +262,8 @@ docker compose exec -T app sh -c ': > /data/audit.jsonl'
 
    Then `sudo systemctl enable --now quick-ftp-explorer`. Put the
    `.env`-style settings in `/etc/quick-ftp-explorer.env` (mode 600).
+   Video conversion writes each clip to `/tmp` while ffmpeg runs, and
+   deletes it right after; `PrivateTmp` keeps it private to the service.
 
 4. `/etc/caddy/Caddyfile`:
 
@@ -337,7 +349,8 @@ limit. See `docker-compose.yml`.
 | *The FTP server refused the connection: 421 …* | The FTP server's per-IP limit is lower than `FTP_MAX_CONNECTIONS`: lower the setting. |
 | *FTP login failed: 530* on every shortcut at once | The server's IP may have been banned or not allowed by the FTP server ([§2](#2-prepare-the-network-and-the-ftp-server)). |
 | Users are signed out after every update | `SESSION_SECRET` is set to a value that changes, or the data volume was recreated. |
-| Videos won't play | A browser codec limitation. Users can download the file ([user manual §6.2](user-manual.en.md#62-video-and-audio)). |
+| Videos won't play: *the server has no converter (ffmpeg)* | Without Docker: install ffmpeg, or set `FFMPEG_PATH`. The app's startup lines say whether conversion is on. |
+| Videos won't play: *too big to play here* | Over `CONVERT_MAX_MB`: raise it (memory permitting), or download the file ([user manual §6.2](user-manual.en.md#62-video-and-audio)). |
 
 ### Trying the stack locally
 

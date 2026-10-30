@@ -20,8 +20,9 @@ services:
       TRUST_PROXY: "1"                # safe: no published port, only Caddy reaches the app
     volumes:
       - qfe-data:/data
-    # Hardening: only /data (and a scratch /tmp) is writable; no Linux
-    # capabilities; no privilege escalation; bounded memory.
+    # Hardening: only /data (and a scratch /tmp in RAM, where video
+    # conversion briefly keeps a clip) is writable; no Linux capabilities;
+    # no privilege escalation; bounded memory.
     read_only: true
     tmpfs:
       - /tmp

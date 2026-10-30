@@ -47,5 +47,10 @@ export function loadConfig(env = process.env) {
     ftpTimeoutMs: int(env.FTP_TIMEOUT_MS, 15000, 1000, 600000, "FTP_TIMEOUT_MS"),
     // Per FTP host:port, for all users together: they all connect from this one IP.
     ftpMaxConnections: int(env.FTP_MAX_CONNECTIONS, 10, 1, 1000, "FTP_MAX_CONNECTIONS"),
+    // Converts videos browsers can't play (server/video.js); "ffmpeg" = from PATH.
+    ffmpegPath: env.FFMPEG_PATH || "ffmpeg",
+    // Bigger videos are offered as a download instead: the server holds the
+    // whole file in memory while it converts it.
+    convertMaxBytes: int(env.CONVERT_MAX_MB, 50, 1, 2048, "CONVERT_MAX_MB") * 1024 * 1024,
   });
 }

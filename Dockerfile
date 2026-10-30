@@ -1,6 +1,9 @@
 # Quick FTP Explorer - production image. Setup: docs/deployment.md.
-# Node.js LTS on Alpine: no build step, one runtime dependency.
+# Node.js LTS on Alpine: no build step, one runtime dependency, plus ffmpeg.
 FROM node:24-alpine
+
+# Converts the camera clips browsers can't play (server/video.js).
+RUN apk add --no-cache ffmpeg
 
 ENV NODE_ENV=production
 WORKDIR /app

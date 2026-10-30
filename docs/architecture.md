@@ -20,6 +20,10 @@ own [architecture notes](../legacy/docs/architecture.md).
   framework. The only runtime dependency is
   [`basic-ftp`](https://github.com/patrickjuchli/basic-ftp) (MIT, no
   dependencies of its own), for the FTP protocol itself.
+- **ffmpeg, when installed**, converts the camera clips browsers can't play
+  (see [Playing videos](#playing-videos)). It is a program the server runs,
+  not a library. The Docker image includes it; without it, those clips are
+  download-only.
 - **No build step.** The browser loads `public/` exactly as it is in the
   repository.
 - **Secrets stay on the server.** Neither account passwords nor FTP
@@ -36,12 +40,13 @@ own [architecture notes](../legacy/docs/architecture.md).
 | `server/auth.js` | Accounts (`users.json`), scrypt hashing, session tokens, login throttling. |
 | `server/store.js` | FTP shortcuts (`shortcuts/*.json`), validation, safe renames. |
 | `server/ftp.js` | The FTP gateway: listings and file streaming over `basic-ftp`. |
+| `server/video.js` | Makes videos playable: passes browser-ready MP4s through, converts the rest with ffmpeg. |
 | `public/js/filetypes.js` | What each file type is and whether it may render inline. Shared by server and browser. |
-
-The browser side is described in [Browser UI](#browser-ui).
 | `server/audit.js` | Append-only audit trail (`audit.jsonl`). |
 | `server/files.js` | Atomic writes (temp file + rename), JSON reads, JSON-stream splitting. |
 | `server/cli.js` | Account administration and shortcut import from the server's shell. |
+
+The browser side is described in [Browser UI](#browser-ui).
 
 ## Request pipeline
 
@@ -204,6 +209,7 @@ told where the FTP server lives.
 |---|---|---|
 | `GET /api/shortcuts/:id/list?path=/a/b` | user | `{ path, entries: [{ name, isDir, isLink, size, date }] }` |
 | `GET` or `HEAD /api/shortcuts/:id/file?path=/a/b/c.mp4[&download=1]` | user | The file, streamed, with `Range` support |
+| `GET` or `HEAD /api/shortcuts/:id/play?path=/a/b/c.avi` | user | The video as an MP4 the browser can play, with `Range` support ([Playing videos](#playing-videos)) |
 
 The entry shape is the one the HTA's parser produced, so the ported UI
 consumes it unchanged. See [The FTP gateway](#the-ftp-gateway) below.
@@ -308,6 +314,49 @@ the one exception to the CSP: Chrome's viewer refuses to render under a
 sandbox CSP, and a PDF runs no page script. `download=1` forces an
 attachment for anything.
 
+### Playing videos
+
+Browsers decode H.264 in MP4 (and WebM), and little else. Cameras also
+record MPEG-4 Part 2 (XviD), often in AVI, and some name their MP4 files
+`.avi`. `GET /api/shortcuts/:id/play` (`server/video.js`) makes any of them
+playable:
+
+1. The gateway fetches the whole file into memory (`gateway.fetch`), up to
+   `CONVERT_MAX_MB` (50 MB by default). Bigger files get a 413 and stay
+   downloadable. A file whose size changes during the transfer, typically
+   the newest clip still being uploaded, gets a 503: try again in a moment.
+2. If the bytes already are an MP4 every browser plays (H.264 Baseline,
+   Main or High; AAC or MP3 audio), they go out untouched, whatever the
+   file is called.
+3. Anything else is converted with ffmpeg to H.264 / AAC in an MP4 that
+   starts with its index (`+faststart`) and has a keyframe every 2 s, so
+   playback starts at once and seeking is precise. ffmpeg works in a
+   private temporary folder, deleted as soon as it is done. In Docker,
+   `/tmp` is in RAM, so footage never reaches a disk there. At most 2
+   conversions run at once, 20 more may wait, and each is stopped after
+   2 minutes.
+4. The result is served from memory, with `Range` support and the same
+   headers as any file (`video/mp4`, inline, sandbox CSP). It is kept for
+   10 minutes, within 64 MB, because a browser asks for a video more than
+   once. Simultaneous requests for one video share one fetch and conversion.
+
+The input is untrusted, so ffmpeg runs with `-protocol_whitelist file` and
+a `-format_whitelist` of real video demuxers (AVI, MP4/MOV, Matroska,
+MPEG-TS/PS, raw H.264/H.265/MPEG-4, FLV, ASF, Dahua DAV, MJPEG). Playlist
+formats such as HLS or concat, which could read other files or fetch URLs,
+are refused.
+
+| Cause | Status |
+|---|---|
+| larger than `CONVERT_MAX_MB` | 413 |
+| ffmpeg can't convert it (damaged file, unknown format) | 415 |
+| no ffmpeg on the server | 501 |
+| conversion queue full, or the file is still being written | 503 + `Retry-After` |
+| a conversion took over 2 minutes | 504 |
+
+413, 415 and 501 are remembered for a minute, so retries cost nothing. At
+startup the server prints whether conversion is on.
+
 ### Protecting the server's IP
 
 All users' FTP traffic now leaves from one address, the VPS. That has
@@ -402,14 +451,17 @@ CSS media queries do most of it; `app.js` only toggles `drawer-open`.
 
 **Opening a file** follows `filetypes.js`:
 
-- images, playable video and audio open in the viewer;
+- images, playable audio and **every video** open in the viewer;
 - other inline types (PDF, text) open in a new tab;
 - everything else is fetched with `download=1`.
 
 The viewer uses the browser's own `<video>` / `<audio>`, which seek
-through HTTP range requests. Closing the viewer removes the media source,
-which aborts the request and so frees the FTP connection. Decode errors
-turn into a "can't play here, download it" message.
+through HTTP range requests. MP4, WebM and MOV files stream straight from
+FTP, and if the browser can't decode one, the viewer switches to `/play`.
+Other videos (AVI, MKV, DAV...) go to `/play` at once. Closing the viewer
+removes the media source, which aborts the request and so frees the FTP
+connection. When nothing plays, the viewer asks the server why (a one-byte
+request returns the JSON error) and shows that, with a download link.
 
 **Roles in the UI.** Admins get `+ New` and a right-click menu (New / Edit
 / Delete); everyone else keeps the browser's own context menu. Shortcut
@@ -429,10 +481,10 @@ events, each with time, user and client IP:
 - `login`, `login_failed`, `login_blocked`, `logout`;
 - `shortcut_create`, `shortcut_update` (with `renamedTo` after a rename),
   `shortcut_delete`, each with the shortcut `id`;
-- `list` (shortcut `id` and `path`) and `file` (`id`, `path`, and
-  `download: true` for forced downloads). A file is logged once per
-  opening: ranged requests that do not start at byte 0 (video seeks) are
-  not logged again.
+- `list` (shortcut `id` and `path`), `file` (`id`, `path`, and
+  `download: true` for forced downloads) and `play` (`id`, `path`: a video
+  opened through `/play`). A file is logged once per opening: ranged
+  requests that do not start at byte 0 (video seeks) are not logged again.
 
 Passwords are never logged. CCTV footage is personal data, so who accessed
 what must be accountable. Writes are queued so lines never interleave, and
@@ -453,6 +505,8 @@ a failed write is reported on stderr without failing the request.
 | `FTP_ALLOWED_HOSTS` | any | Comma-separated hosts shortcuts may point at, e.g. your one FTP server. |
 | `FTP_TIMEOUT_MS` | `15000` | How long the FTP server may stay silent before a request fails. |
 | `FTP_MAX_CONNECTIONS` | `10` | Simultaneous FTP connections per server, for all users together. |
+| `FFMPEG_PATH` | `ffmpeg` | The ffmpeg program that converts videos (found on the `PATH` by default). |
+| `CONVERT_MAX_MB` | `50` | Largest video the server fetches to play in the browser; bigger ones are download-only. |
 
 `npm run dev` and `npm run cli` also read a local `.env` file when present.
 
@@ -481,6 +535,26 @@ dependencies:
   `HEAD`, HTML/SVG served as attachments, PDF handling, servers without
   `SIZE`, and FTP connections closing when a download is abandoned, a
   range is satisfied, or the reader stalls.
+- `tests/video.test.js`: telling browser-ready MP4s apart (built box by box
+  in `tests/helpers/mp4.js`), and the converter with a stand-in for ffmpeg
+  (`tests/helpers/fake-ffmpeg.js`): passthrough, temporary files cleaned
+  up, the whitelists, shared and cached results, which failures are
+  remembered, the queue limit. With ffmpeg installed it also converts real
+  XviD clips, in AVI and in MP4; without, those tests are skipped.
+- `tests/play-api.test.js`: `/play` over HTTP: an H.264 MP4 named `.avi`
+  goes out untouched, other clips are converted, ranges, `HEAD`, the size
+  limit with and without `SIZE`, errors, the audit trail, and a server
+  without ffmpeg.
+- `tests/http.test.js`: the real server on an ephemeral port with a
+  throwaway data directory (`tests/helpers/app.js`): pages, static files,
+  headers, sign-in, sign-out, throttling, proxy handling, the audit trail.
+- `tests/hygiene.test.js`: fails if the repository tracks runtime data
+  (shortcut JSON, `data.csv`, `data/`, `.env`) or any routable IPv4 address.
+  It exists because of the 2026-04-21 leak.
+- `tests/deploy.test.js`: guards on the deployment files. The
+  `.dockerignore` allowlist, no blanket `COPY`, a non-root user, ffmpeg in
+  the image, the app service unpublished and hardened, and Caddy's
+  keep-alive below the app's.
 
 `tests/helpers/fake-ftp-server.js` is a small, real FTP server (`node:net`,
 read-only) with switches for awkward servers: no EPSV, a private PASV
@@ -492,16 +566,6 @@ For development, `npm run dev:ftp` serves a demo tree on `127.0.0.1:2121`
 (user `demo`, password `demo`): a real PNG and PDF, accented names, and
 HTML/SVG files that must download. `node tests/dev-ftp.js --root <folder>`
 serves a local folder instead, e.g. real clips to try video seeking.
-- `tests/http.test.js`: the real server on an ephemeral port with a
-  throwaway data directory (`tests/helpers/app.js`): pages, static files,
-  headers, sign-in, sign-out, throttling, proxy handling, the audit trail.
-- `tests/hygiene.test.js`: fails if the repository tracks runtime data
-  (shortcut JSON, `data.csv`, `data/`, `.env`) or any routable IPv4 address.
-  It exists because of the 2026-04-21 leak.
-
-- `tests/deploy.test.js`: guards on the deployment files. The
-  `.dockerignore` allowlist, no blanket `COPY`, a non-root user, the app
-  service unpublished and hardened, and Caddy's keep-alive below the app's.
 
 CI (`.github/workflows/test.yml`) runs the suite on Node 22 and 24 for every
 push and pull request.
@@ -510,8 +574,9 @@ push and pull request.
 
 See the [deployment guide](deployment.md). In short:
 
-- `Dockerfile`: `node:24-alpine`, production dependencies only, code owned
-  by root, the app runs as `node`, health check on `/healthz`.
+- `Dockerfile`: `node:24-alpine` plus Alpine's ffmpeg, production
+  dependencies only, code owned by root, the app runs as `node`, health
+  check on `/healthz`.
 - `docker-compose.yml`: the app (not published, read-only filesystem, no
   capabilities, `no-new-privileges`, 512 MB, `TRUST_PROXY=1`, a `qfe-data`
   volume) behind Caddy (`deploy/Caddyfile`), which serves `DOMAIN` with an

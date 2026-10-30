@@ -24,6 +24,9 @@ signs in and browses, from any device, with nothing to install.
 - **Open files in the browser.** Images in a viewer with zoom and pan;
   video and audio in the browser's player, with seeking; PDFs and text in a
   new tab; everything else downloads.
+- **Camera clips just play.** Videos browsers can't decode (XviD/MPEG-4 in
+  `.avi`, `.mkv`, `.dav`...) are converted to H.264 on the server with
+  ffmpeg, and MP4 files a camera named `.avi` play as they are.
 - **Personal accounts.** Admins manage the shared shortcuts (`+ New`, or
   right-click for Edit / Delete); everyone else browses.
 - **Safe by design.**
@@ -40,12 +43,14 @@ signs in and browses, from any device, with nothing to install.
   connections per server are capped and queued, and a failing login pauses
   the shortcut instead of risking an IP ban.
 - **Small.** Node.js plus one dependency
-  ([`basic-ftp`](https://github.com/patrickjuchli/basic-ftp)). No framework,
-  no build step.
+  ([`basic-ftp`](https://github.com/patrickjuchli/basic-ftp)), and ffmpeg
+  for video conversion (the Docker image includes it). No framework, no
+  build step.
 
 ## Try it locally
 
-Requirements: Node.js 22 or newer.
+Requirements: Node.js 22 or newer. Optional: [ffmpeg](https://ffmpeg.org/)
+on the `PATH` (or `FFMPEG_PATH`), to play videos browsers can't decode.
 
 ```
 npm install

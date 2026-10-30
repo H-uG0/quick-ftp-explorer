@@ -471,6 +471,7 @@ button:disabled { background: #c7d3de; cursor: default; }
 }
 
 .viewer-body {
+  position: relative;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -489,6 +490,17 @@ audio.viewer-media {
   margin: auto;
   width: min(640px, calc(100% - 32px));
   background: transparent;
+}
+
+.viewer-status {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  color: #f2f2f2;
+  pointer-events: none;
 }
 
 .viewer-message {

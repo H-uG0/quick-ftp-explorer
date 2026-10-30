@@ -4,9 +4,11 @@
  *   createGateway(options)
  *     list(sc, path, res)               -> [{ name, isDir, isLink, size, date }]
  *     stream(sc, path, req, res, opts)  pipe one file into the HTTP response
+ *     fetch(sc, path, { maxBytes })     -> Buffer: one whole file (video conversion)
  *     forget(id)                        lift the login-failure pause of a shortcut
  *   parseRemotePath(path)               "/a/b" -> ["a", "b"]; HttpError 400 if unsafe
  *   parseRange(header, size)            null | "unsatisfiable" | { start, end }
+ *   fileHeaders(name, type, size, range, length)   headers of a served file
  *   toHttpError(err)                    FTP/network error -> readable HttpError
  *
  * Paths behave like the legacy HTA's curl calls: "/"-rooted in the UI but
@@ -33,6 +35,7 @@ const DEFAULTS = {
   allowedHosts: [],           // FTP_ALLOWED_HOSTS, re-checked at connect time
   queueWaitMs: 20_000,        // wait for a free connection slot this long
   listDeadlineMs: 60_000,     // one whole listing (curl had --max-time 60)
+  fetchDeadlineMs: 120_000,   // one whole file fetched into memory
   stallMs: 60_000,            // close a download that makes no progress this long
   loginPauseMs: 5 * 60_000,   // after a failed login, don't retry the shortcut this long
   maxListingBytes: 8 * 1024 * 1024,
@@ -204,7 +207,7 @@ function contentDisposition(disposition, name) {
   return `${disposition}; filename="${ascii}"; filename*=UTF-8''${utf8}`;
 }
 
-function fileHeaders(name, type, size, range, length) {
+export function fileHeaders(name, type, size, range, length) {
   const headers = {
     "Content-Type": type || "application/octet-stream",
     "Content-Disposition": contentDisposition(type ? "inline" : "attachment", name),
@@ -285,8 +288,8 @@ export function createGateway(options = {}) {
   }
 
   // Runs work(client, why, stop) on a fresh connection that is closed
-  // afterwards, or early: when the browser goes away, the deadline passes,
-  // or work calls stop(reason). why() returns that reason.
+  // afterwards, or early: when the browser goes away (if `res` is given),
+  // the deadline passes, or work calls stop(reason). why() returns that reason.
   async function withConnection(sc, res, deadlineMs, work) {
     const { client, close } = await connect(sc);
     let reason = null;
@@ -299,8 +302,8 @@ export function createGateway(options = {}) {
     const onClose = () => {
       if (!res.writableFinished) stop("client");
     };
-    res.on("close", onClose);
-    if (res.destroyed) onClose();
+    res?.on("close", onClose);
+    if (res?.destroyed) onClose();
     const deadline = deadlineMs ? setTimeout(() => stop("deadline"), deadlineMs) : null;
     try {
       return await work(client, () => reason, stop);
@@ -310,7 +313,7 @@ export function createGateway(options = {}) {
       throw toHttpError(err);
     } finally {
       clearTimeout(deadline);
-      res.off("close", onClose);
+      res?.off("close", onClose);
       close();
     }
   }
@@ -405,6 +408,47 @@ export function createGateway(options = {}) {
         }
         const stopEarly = !!range && range.end < size - 1;
         await pipeFile(client, name, res, { start, length, stopEarly, status, headers }, why, stop);
+      });
+    },
+
+    // Not tied to one HTTP response: the result is shared by every request
+    // for the same video. Refused up front when SIZE shows the file is too
+    // big, and mid-transfer otherwise.
+    async fetch(sc, rawPath, { maxBytes }) {
+      const segments = parseRemotePath(rawPath);
+      const name = segments.pop();
+      if (!name) throw new HttpError(400, "Not a file path");
+      const tooBig = () => new HttpError(413,
+        `This file is too big to play here (over ${Math.round(maxBytes / 1048576)} MB): download it instead.`);
+
+      return withConnection(sc, null, o.fetchDeadlineMs, async (client, why, stop) => {
+        for (const segment of segments) await client.cd(segment);
+        const size = await fileSize(client, name);
+        if (size !== null && size > maxBytes) throw tooBig();
+        const chunks = [];
+        let total = 0;
+        const sink = new Writable({
+          write(chunk, _encoding, callback) {
+            total += chunk.length;
+            if (total > maxBytes) {
+              stop("too big");
+              return callback(new Error("File too big"));
+            }
+            chunks.push(chunk);
+            callback();
+          },
+        });
+        try {
+          await client.downloadTo(sink, name);
+        } catch (err) {
+          if (why() !== "too big") throw err;
+        }
+        if (why() === "too big") throw tooBig();
+        // A camera may still be uploading the newest clip: don't keep half of it.
+        if (size !== null && total !== size) {
+          throw new HttpError(503, "This file is still being written; try again in a moment", { "Retry-After": "5" });
+        }
+        return Buffer.concat(chunks, total);
       });
     },
   };

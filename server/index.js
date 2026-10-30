@@ -23,6 +23,11 @@ server.listen(cfg.port, cfg.host, async () => {
   if ((await app.users.list()).length === 0) {
     console.log("No accounts yet. Create the first admin with: npm run cli -- user add <name> --admin");
   }
+  const ffmpeg = await app.converter.check();
+  console.log(ffmpeg
+    ? `Video conversion: on (${ffmpeg})`
+    : `Video conversion: off, "${cfg.ffmpegPath}" not found. Install ffmpeg or set FFMPEG_PATH; ` +
+      "until then, videos browsers can't play are download-only.");
 });
 
 function shutdown(signal) {

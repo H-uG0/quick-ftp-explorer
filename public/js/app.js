@@ -204,7 +204,12 @@ function openFile(sc, entry, path) {
   const inline = inlineType(entry.name);
   const url = api.fileUrl(sc.id, path);
   const downloadUrl = api.fileUrl(sc.id, path, { download: true });
-  if (inline && ["image", "video", "audio"].includes(kind)) {
+  if (kind === "video") {
+    // MP4 & co. stream straight from FTP. Other videos, and those the browser
+    // turns out not to decode, come through the server's converter.
+    const playUrl = api.playUrl(sc.id, path);
+    viewer.open({ name: entry.name, kind, url: inline ? url : playUrl, fallbackUrl: inline ? playUrl : null, downloadUrl });
+  } else if (inline && ["image", "audio"].includes(kind)) {
     viewer.open({ name: entry.name, kind, url, downloadUrl });
   } else if (inline) {
     follow(url, { newTab: true });   // PDF and text: the browser's own viewer

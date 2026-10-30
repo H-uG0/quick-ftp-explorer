@@ -164,13 +164,15 @@ What happens when you click a file depends on its type:
 | Type | Examples | What happens |
 |---|---|---|
 | Images | `.jpg` `.jpeg` `.png` `.gif` `.webp` `.bmp` | Built-in image viewer ([§6.1](#61-image-viewer)) |
-| Video | `.mp4` `.m4v` `.webm` `.mov` | Built-in player, with seeking ([§6.2](#62-video-and-audio)) |
+| Video | `.mp4` `.m4v` `.webm` `.mov` `.avi` `.mkv` `.dav` `.264` | Built-in player, with seeking ([§6.2](#62-video-and-audio)) |
 | Audio | `.mp3` `.wav` `.ogg` `.m4a` `.aac` `.flac` | Built-in player |
 | PDF and text | `.pdf` `.txt` `.log` | Opens in a new browser tab |
-| Everything else | `.mkv` `.avi` `.dav` `.264` `.docx` `.xlsx` `.zip` `.html` `.svg`… | Downloaded to your Downloads folder |
+| Everything else | `.docx` `.xlsx` `.zip` `.html` `.svg`… | Downloaded to your Downloads folder |
 
-Files are streamed from the FTP server through Quick FTP Explorer; nothing
-is stored on the server along the way.
+Files are streamed from the FTP server through Quick FTP Explorer and are
+not kept on the server. The one exception: a video that needs converting
+stays in the server's memory for a few minutes, so replaying it or seeking
+in it is quick.
 
 ### 6.1 Image viewer
 
@@ -189,10 +191,15 @@ Videos play in the browser's own player: play, pause, volume, full screen,
 and **seeking** &mdash; you can jump anywhere in a long recording without
 downloading it first.
 
-Some recordings use formats or codecs a browser cannot decode (proprietary
-recorder formats, sometimes H.265/HEVC). The viewer then says *This file
-can't be played in this browser* and offers **Download it instead**; open
-the downloaded file with your usual player (VLC, the recorder vendor's
+Many cameras record in formats browsers can't play, such as XviD (MPEG-4)
+in `.avi` files. Quick FTP Explorer converts those on the server when you
+open them: *Loading…* or *Converting the video for this browser…* shows for
+a moment, then the video plays like any other.
+
+A few videos still can't play in the browser: a damaged file, or one larger
+than the server's conversion limit (50 MB unless your administrator changed
+it). The viewer then says why and offers **Download it instead**; open the
+downloaded file with your usual player (VLC, the recorder vendor's
 player…).
 
 ### 6.3 Why some files always download

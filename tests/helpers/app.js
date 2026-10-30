@@ -4,6 +4,7 @@
  *
  *   const t = await startApp({ TRUST_PROXY: "1" });   // extra env vars
  *   const t = await startApp({}, { ftp: { stallMs: 200 } });   // gateway overrides
+ *   const t = await startApp({}, { video: { probe, run } });   // converter overrides (fake ffmpeg)
  *   await t.app.users.add("alice", "password-123", "admin");
  *   const { cookie } = await t.login("alice", "password-123");
  *   const res = await t.request("/api/me", { headers: { cookie } });
@@ -28,10 +29,10 @@ export async function waitFor(cond, what = "condition", ms = 5000) {
   }
 }
 
-export async function startApp(env = {}, { ftp } = {}) {
+export async function startApp(env = {}, { ftp, video } = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "qfe-test-"));
   const cfg = loadConfig({ DATA_DIR: dataDir, ...env });
-  const app = await createApp(cfg, { log: () => {}, ftp });
+  const app = await createApp(cfg, { log: () => {}, ftp, video });
   const server = http.createServer(app.handler);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;

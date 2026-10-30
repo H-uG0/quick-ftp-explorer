@@ -2,8 +2,8 @@
  * routes.js - the application: wires config, accounts, shortcuts, the audit
  * trail and static files into the route table.
  *
- *   createApp(cfg, { log, ftp }) -> { handler, users, shortcuts, audit }
- *                                   (`ftp` overrides gateway timings, for tests)
+ *   createApp(cfg, { log, ftp, video }) -> { handler, users, shortcuts, audit, converter }
+ *                                   (`ftp` / `video` override gateway / converter options, for tests)
  *
  * Pages:  GET /  GET /login  POST /login  POST /logout
  * API:    GET /api/me
@@ -11,6 +11,7 @@
  *         POST /api/shortcuts  PUT|DELETE /api/shortcuts/:id   (admins only)
  *         GET /api/shortcuts/:id/list?path=      folder listing
  *         GET|HEAD /api/shortcuts/:id/file?path=[&download=1]   file stream (Range)
+ *         GET|HEAD /api/shortcuts/:id/play?path=   a video as an MP4 the browser can play (Range)
  * Ops:    GET /healthz
  *
  * FTP passwords never appear in any response.
@@ -25,6 +26,7 @@ import {
 import { createUserStore, createSessions, createLimiter, loadSessionSecret } from "./auth.js";
 import { createShortcutStore } from "./store.js";
 import { createGateway, parseRemotePath } from "./ftp.js";
+import { createConverter, sendVideo } from "./video.js";
 import { createAudit } from "./audit.js";
 import { HttpError } from "./http.js";
 
@@ -34,8 +36,9 @@ const ID = "(?<id>[A-Za-z0-9._-]+)";
 const SHORTCUT_PATH = new RegExp(`^/api/shortcuts/${ID}$`);
 const LIST_PATH = new RegExp(`^/api/shortcuts/${ID}/list$`);
 const FILE_PATH = new RegExp(`^/api/shortcuts/${ID}/file$`);
+const PLAY_PATH = new RegExp(`^/api/shortcuts/${ID}/play$`);
 
-export async function createApp(cfg, { log, ftp } = {}) {
+export async function createApp(cfg, { log, ftp, video } = {}) {
   await mkdir(cfg.dataDir, { recursive: true, mode: 0o700 });
   const staticFiles = await loadStatic(PUBLIC_DIR);
   const users = createUserStore(path.join(cfg.dataDir, "users.json"));
@@ -53,6 +56,7 @@ export async function createApp(cfg, { log, ftp } = {}) {
     allowedHosts: cfg.ftpAllowedHosts,
     ...ftp,
   });
+  const converter = createConverter({ ffmpegPath: cfg.ffmpegPath, ...video });
   const audit = createAudit(path.join(cfg.dataDir, "audit.jsonl"));
   const limiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
 
@@ -160,18 +164,36 @@ export async function createApp(cfg, { log, ftp } = {}) {
     return { path: normalized, entries: await gateway.list(sc, rawPath, ctx.res) };
   }
 
+  // One audit line per opened file: seeking in a video sends more ranged
+  // requests for the same file, which are not worth a line each.
+  function auditOpen(ctx, event, sc, path, extra) {
+    const range = ctx.req.headers.range;
+    if (ctx.req.method === "GET" && (!range || /^bytes=0-/.test(range))) {
+      audit(event, { user: ctx.user.name, ip: ctx.ip, id: sc.id, path, ...extra });
+    }
+  }
+
   async function streamFile(ctx) {
     const sc = await requireShortcut(ctx.params.id);
     const rawPath = ctx.url.searchParams.get("path") || "";
     const normalized = "/" + parseRemotePath(rawPath).join("/");
     const download = ctx.url.searchParams.get("download") === "1";
-    // One line per opened file: seeking in a video sends more ranged requests
-    // for the same file, which are not worth a line each.
-    const range = ctx.req.headers.range;
-    if (ctx.req.method === "GET" && (!range || /^bytes=0-/.test(range))) {
-      audit("file", { user: ctx.user.name, ip: ctx.ip, id: sc.id, path: normalized, ...(download && { download }) });
-    }
+    auditOpen(ctx, "file", sc, normalized, download && { download });
     await gateway.stream(sc, rawPath, ctx.req, ctx.res, { download });
+  }
+
+  async function playVideo(ctx) {
+    const sc = await requireShortcut(ctx.params.id);
+    const rawPath = ctx.url.searchParams.get("path") || "";
+    const segments = parseRemotePath(rawPath);
+    if (!segments.length) throw new HttpError(400, "Not a file path");
+    const normalized = "/" + segments.join("/");
+    auditOpen(ctx, "play", sc, normalized);
+    // The server and login are part of the key, so after an admin edits the
+    // shortcut nothing fetched with the old settings is served.
+    const key = [sc.id, sc.host, sc.port, sc.username, normalized].join("\n");
+    const body = await converter.playable(key, () => gateway.fetch(sc, rawPath, { maxBytes: cfg.convertMaxBytes }));
+    sendVideo(ctx.req, ctx.res, body, segments.at(-1));
   }
 
   /* ---- route table ---- */
@@ -195,6 +217,7 @@ export async function createApp(cfg, { log, ftp } = {}) {
     { method: "DELETE", path: SHORTCUT_PATH, auth: "admin", handler: deleteShortcut },
     { method: "GET", path: LIST_PATH, auth: "user", handler: listFolder },
     { method: "GET", path: FILE_PATH, auth: "user", handler: streamFile },
+    { method: "GET", path: PLAY_PATH, auth: "user", handler: playVideo },
   ];
 
   const handler = createHandler({
@@ -204,5 +227,5 @@ export async function createApp(cfg, { log, ftp } = {}) {
     log,
     sessionUser: (req) => sessions.verify(parseCookies(req)[COOKIE]),
   });
-  return { handler, users, shortcuts, audit };
+  return { handler, users, shortcuts, audit, converter };
 }

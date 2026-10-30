@@ -40,6 +40,7 @@ test("the Dockerfile copies only what it names and runs as a non-root user", () 
   assert.deepEqual(copies.sort(), ["package-lock.json", "package.json", "public", "server"]);
   assert.match(dockerfile, /^USER node$/m);
   assert.match(dockerfile, /^HEALTHCHECK /m);
+  assert.match(dockerfile, /^RUN apk add --no-cache ffmpeg$/m, "ffmpeg, for video conversion");
 });
 
 test("the app service is unpublished and hardened", () => {

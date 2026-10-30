@@ -176,13 +176,15 @@ Ce qui se passe au clic dépend du type de fichier :
 | Type | Exemples | Résultat |
 |---|---|---|
 | Images | `.jpg` `.jpeg` `.png` `.gif` `.webp` `.bmp` | Visionneuse d'images intégrée ([§6.1](#61-visionneuse-dimages)) |
-| Vidéo | `.mp4` `.m4v` `.webm` `.mov` | Lecteur intégré, avec avance rapide ([§6.2](#62-vidéo-et-audio)) |
+| Vidéo | `.mp4` `.m4v` `.webm` `.mov` `.avi` `.mkv` `.dav` `.264` | Lecteur intégré, avec avance rapide ([§6.2](#62-vidéo-et-audio)) |
 | Audio | `.mp3` `.wav` `.ogg` `.m4a` `.aac` `.flac` | Lecteur intégré |
 | PDF et texte | `.pdf` `.txt` `.log` | S'ouvre dans un nouvel onglet |
-| Tout le reste | `.mkv` `.avi` `.dav` `.264` `.docx` `.xlsx` `.zip` `.html` `.svg`… | Téléchargé dans votre dossier Téléchargements |
+| Tout le reste | `.docx` `.xlsx` `.zip` `.html` `.svg`… | Téléchargé dans votre dossier Téléchargements |
 
 Les fichiers transitent du serveur FTP jusqu'à vous via Quick FTP
-Explorer ; rien n'est conservé sur le serveur au passage.
+Explorer et ne sont pas conservés sur le serveur. Seule exception : une
+vidéo à convertir reste quelques minutes dans la mémoire du serveur, pour
+que la relire ou s'y déplacer soit rapide.
 
 ### 6.1 Visionneuse d'images
 
@@ -205,12 +207,18 @@ volume, plein écran et **déplacement dans la vidéo** &mdash; vous pouvez
 sauter n'importe où dans un long enregistrement sans le télécharger
 d'abord.
 
-Certains enregistrements utilisent des formats ou des codecs que les
-navigateurs ne savent pas décoder (formats propriétaires d'enregistreurs,
-parfois le H.265/HEVC). La visionneuse affiche alors *This file can't be
-played in this browser* et propose **Download it instead** (le
-télécharger) ; ouvrez le fichier téléchargé avec votre lecteur habituel
-(VLC, le lecteur du fabricant de l'enregistreur…).
+Beaucoup de caméras enregistrent dans des formats que les navigateurs ne
+savent pas lire, comme le XviD (MPEG-4) dans des fichiers `.avi`. Quick
+FTP Explorer les convertit sur le serveur à l'ouverture : *Loading…*
+(chargement) ou *Converting the video for this browser…* (conversion pour
+ce navigateur) s'affiche un instant, puis la vidéo se lit comme les autres.
+
+Quelques vidéos restent illisibles dans le navigateur : un fichier
+endommagé, ou une vidéo plus grosse que la limite de conversion du serveur
+(50 Mo, sauf réglage contraire de votre administrateur). La visionneuse en
+donne la raison et propose **Download it instead** (le télécharger) ;
+ouvrez le fichier téléchargé avec votre lecteur habituel (VLC, le lecteur
+du fabricant de l'enregistreur…).
 
 ### 6.3 Pourquoi certains fichiers sont toujours téléchargés
 

@@ -1,15 +1,15 @@
 /*
  * viewer.js - in-app modal viewer for images, video and audio.
  *
- *   viewer.open({ name, kind, url, downloadUrl })   kind: "image" | "video" | "audio"
+ *   viewer.open({ name, kind, url, fallbackUrl, downloadUrl })   kind: "image" | "video" | "audio"
  *   viewer.close()
  *
  * Images: fit / 100% / zoom buttons, mouse-wheel zoom, drag to pan. Video and
  * audio use the browser's own player, which seeks through HTTP range
- * requests. When the browser can't decode a file (some camera codecs, H.265
- * in some browsers), the viewer says so and offers the download instead.
- * Closing stops the stream, which frees the server's FTP connection.
- * Esc closes.
+ * requests. When the browser can't decode a file, the viewer tries
+ * fallbackUrl (the server's converted MP4) if there is one, and otherwise
+ * says why and offers the download instead. Closing stops the stream, which
+ * frees the server's FTP connection. Esc closes.
  */
 
 import { el } from "./ui.js";
@@ -50,14 +50,14 @@ function onKey(e) {
   if (e.key === "Escape") close();
 }
 
-function open({ name, kind, url, downloadUrl }) {
+function open({ name, kind, url, fallbackUrl = null, downloadUrl }) {
   ensureOverlay();
   stopMedia();
   titleEl.textContent = name;
   titleEl.title = name;
   downloadLink.href = downloadUrl;
   if (kind === "image") renderImage(url);
-  else renderMedia(kind, url);
+  else renderMedia(kind, url, fallbackUrl);
   overlay.hidden = false;
   document.addEventListener("keydown", onKey);
 }
@@ -79,19 +79,45 @@ function close() {
   overlay.hidden = true;
 }
 
-function renderMedia(kind, url) {
+const CANT_PLAY = "This file can't be played in this browser (unsupported format or codec). " +
+  "Download it to watch it in another player.";
+
+// A media element doesn't expose the server's error message: ask for the
+// first byte, which returns the message itself if the video isn't available.
+async function explain(url) {
+  try {
+    const res = await fetch(url, { headers: { Range: "bytes=0-0" } });
+    if (!res.ok) return (await res.json()).error || CANT_PLAY;
+  } catch {
+    // offline, or not JSON: the generic message will do
+  }
+  return CANT_PLAY;
+}
+
+function renderMedia(kind, url, fallbackUrl) {
   const media = el(kind, "viewer-media");
   media.controls = true;
   media.autoplay = true;
   media.preload = "metadata";
-  media.addEventListener("error", () => {
-    if (media.getAttribute("src")) {
-      showProblem("This file can't be played in this browser (unsupported format or codec). " +
-        "Download it to watch it in another player.");
+  // Converting a video takes a moment: say something meanwhile.
+  const status = el("p", "viewer-status", "Loading…");
+  let fallback = fallbackUrl;
+  media.addEventListener("loadedmetadata", () => status.remove());
+  media.addEventListener("error", async () => {
+    const src = media.getAttribute("src");
+    if (!src) return;   // stopped on purpose
+    if (fallback) {
+      media.src = fallback;
+      fallback = null;
+      status.textContent = "Converting the video for this browser…";
+      if (!status.isConnected) body.append(status);   // gone if the first try got as far as metadata
+      return;
     }
+    const message = await explain(src);
+    if (media.getAttribute("src") === src) showProblem(message);   // unless the viewer moved on
   });
   media.src = url;
-  body.replaceChildren(media);
+  body.replaceChildren(media, status);
 }
 
 function renderImage(url) {
