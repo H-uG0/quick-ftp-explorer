@@ -73,24 +73,29 @@ export async function createApp(cfg, { log, ftp } = {}) {
   async function login(ctx) {
     const form = await readForm(ctx.req);
     const username = String(form.username ?? "").trim().toLowerCase().slice(0, 64);
+    // The folder link the user arrived with ("#/<id>/<path>", see
+    // public/js/util.js). Only that exact shape is accepted, so this can
+    // never redirect anywhere but into the app.
+    const next = String(form.next ?? "");
+    const fragment = /^#\/[\x21-\x7e]{0,2048}$/.test(next) ? next : "";
     // Throttle both the address and the account: one guesses many accounts,
     // the other guards a single account against a distributed attempt.
     const keys = [`ip:${ctx.ip}`, `user:${username}`];
     if (keys.some((key) => limiter.blocked(key))) {
       audit("login_blocked", { user: username, ip: ctx.ip });
-      return redirect(ctx.res, "/login?error=rate");
+      return redirect(ctx.res, "/login?error=rate" + fragment);
     }
     const user = await users.authenticate(username, form.password);
     if (!user) {
       keys.forEach((key) => limiter.fail(key));
       audit("login_failed", { user: username, ip: ctx.ip });
-      return redirect(ctx.res, "/login?error=invalid");
+      return redirect(ctx.res, "/login?error=invalid" + fragment);
     }
     limiter.reset(`user:${username}`);
     setSessionCookie(ctx, sessions.issue(user), sessions.ttlSeconds);
     ctx.user = { name: user.name, role: user.role };   // so the request log names them
     audit("login", { user: user.name, ip: ctx.ip });
-    redirect(ctx.res, "/");
+    redirect(ctx.res, "/" + fragment);
   }
 
   function logout(ctx) {

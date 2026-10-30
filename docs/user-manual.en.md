@@ -29,8 +29,8 @@ anything on the FTP servers.
 
 ## 2. What you need
 
-- A recent web browser: Chrome, Edge, Firefox or Safari, on a computer or
-  a tablet. On a phone, turn it sideways (landscape).
+- A recent web browser: Chrome, Edge, Firefox or Safari, on a computer, a
+  tablet or a phone.
 - The **address** of your Quick FTP Explorer, for example
   `https://files.example.com`.
 - An **account**: a username and a password given to you by an
@@ -132,6 +132,28 @@ Each folder is loaded once and then remembered until you reload the page
 or press **↻**, so going back is instant. The first time, the server
 connects to the FTP server for you; on slow servers a small *Loading
 folder…* indicator appears in the bottom-right corner.
+
+### 5.1 Links, bookmarks and the Back button
+
+The address bar always shows the folder you are in, for example
+`https://files.example.com/#/main-nvr/Images/2026`. So:
+
+- the browser's **Back** and **Forward** buttons move between the folders
+  you visited;
+- you can **bookmark** a folder, or **send its address** to a colleague:
+  it opens that folder for anyone who can sign in (after the sign-in page,
+  if needed);
+- reloading the page keeps you where you were.
+
+A link to a shortcut that no longer exists simply opens the start page.
+
+### 5.2 On a phone
+
+On narrow screens the shortcuts panel slides in from the left: tap **☰**
+in the top bar to show it, then tap a shortcut or folder; the panel closes
+by itself and the files fill the screen. Tap **☰** again (or outside the
+panel) to switch back. To keep the table readable, only the **Name** and
+**Size** columns are shown.
 
 ---
 
@@ -245,7 +267,8 @@ loses access to it at once.
 
 | Key | Action |
 |---|---|
-| `Esc` | Close the viewer, the shortcut dialog or the right-click menu |
+| `Esc` | Close the viewer, the shortcut dialog, the right-click menu or the phone's shortcuts panel |
+| `Alt+←` / `Alt+→` | The browser's Back / Forward: previous / next folder |
 | `Tab` / `Shift+Tab` | Move between file rows |
 | `Enter` | Open the focused file or folder |
 
@@ -290,9 +313,12 @@ loses access to it at once.
 No. A recent browser is enough.
 
 **Can I use it on a phone or tablet?**
-On a tablet, yes: everything works with touch (tap to open, drag the pane
-border to resize). On a phone, use landscape orientation; the layout is
-designed for wider screens.
+Yes. Everything works with touch. On a phone, the shortcuts panel opens
+with the **☰** button ([§5.2](#52-on-a-phone)).
+
+**Can I send a colleague a link to a folder?**
+Yes: copy the address bar ([§5.1](#51-links-bookmarks-and-the-back-button)).
+They need their own account to open it.
 
 **Can I upload, rename or delete files?**
 No. Quick FTP Explorer is read-only by design.

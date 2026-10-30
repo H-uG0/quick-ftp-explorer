@@ -548,6 +548,42 @@ audio.viewer-media {
 .card .field { margin-bottom: 12px; }
 .card .field input { padding: 6px 8px; }
 
+/* ---- narrow screens (phones): the left pane becomes a drawer ---- */
+
+.menu-toggle { display: none; }
+
+@media (max-width: 700px) {
+  .menu-toggle { display: inline-block; }
+  .topbar { gap: 6px; padding: 0 8px; }
+  .topbar .brand { min-width: 0; }
+  .brand-name { display: none; }
+  .search input { width: 110px; }
+
+  .panels { position: relative; }
+  .splitter { display: none; }
+  .pane-left {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(320px, 85vw) !important;   /* beats the width the splitter saved */
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.18);
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0.2s;
+  }
+  #app.drawer-open .pane-left {
+    transform: none;
+    visibility: visible;
+  }
+
+  .file-table .col-type,
+  .file-table .col-date { display: none; }
+  .file-table .col-size { width: 72px; }
+  .statusbar #status-info { display: none; }
+}
+
 /* ---- utilities ---- */
 
 .muted { color: var(--muted); }

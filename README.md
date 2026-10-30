@@ -16,6 +16,11 @@ signs in and browses, from any device, with nothing to install.
 - **File-Explorer-style browsing.** Shortcut and folder tree on the left,
   name / type / size / modified table on the right, breadcrumb, live search,
   refresh, resizable panes.
+- **Links and the Back button.** The address bar names the open folder:
+  bookmark it, send it to a colleague (it survives the sign-in page), and
+  move between folders with Back and Forward.
+- **Phones too.** On narrow screens the shortcuts become a slide-in panel
+  and the table keeps only what fits.
 - **Open files in the browser.** Images in a viewer with zoom and pan;
   video and audio in the browser's player, with seeking; PDFs and text in a
   new tab; everything else downloads.

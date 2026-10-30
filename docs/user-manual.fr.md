@@ -30,8 +30,8 @@ supprime jamais rien sur les serveurs FTP.
 
 ## 2. Ce qu'il vous faut
 
-- Un navigateur récent : Chrome, Edge, Firefox ou Safari, sur ordinateur
-  ou tablette. Sur un téléphone, tenez-le à l'horizontale (paysage).
+- Un navigateur récent : Chrome, Edge, Firefox ou Safari, sur ordinateur,
+  tablette ou téléphone.
 - L'**adresse** de votre Quick FTP Explorer, par exemple
   `https://files.example.com`.
 - Un **compte** : un identifiant et un mot de passe fournis par un
@@ -142,6 +142,30 @@ la page ou à un clic sur **↻** : revenir en arrière est donc instantané.
 La première fois, le serveur se connecte au serveur FTP pour vous ; avec
 un serveur lent, un petit indicateur *Loading folder…* apparaît en bas à
 droite.
+
+### 5.1 Liens, favoris et bouton Précédent
+
+La barre d'adresse indique toujours le dossier où vous êtes, par exemple
+`https://files.example.com/#/main-nvr/Images/2026`. Ainsi :
+
+- les boutons **Précédent** et **Suivant** du navigateur passent d'un
+  dossier visité à l'autre ;
+- vous pouvez **mettre un dossier en favori**, ou **envoyer son adresse**
+  à un collègue : elle ouvre ce dossier pour toute personne pouvant se
+  connecter (après la page de connexion si nécessaire) ;
+- recharger la page vous laisse au même endroit.
+
+Un lien vers un raccourci qui n'existe plus ouvre simplement la page
+d'accueil.
+
+### 5.2 Sur un téléphone
+
+Sur les écrans étroits, le panneau des raccourcis glisse depuis la gauche :
+touchez **☰** dans la barre du haut pour l'afficher, puis touchez un
+raccourci ou un dossier ; le panneau se referme de lui-même et les fichiers
+occupent l'écran. Touchez de nouveau **☰** (ou en dehors du panneau) pour
+revenir. Pour que le tableau reste lisible, seules les colonnes **Name**
+(nom) et **Size** (taille) sont affichées.
 
 ---
 
@@ -266,7 +290,8 @@ monde en perd l'accès immédiatement.
 
 | Touche | Action |
 |---|---|
-| `Échap` | Fermer la visionneuse, la fenêtre de raccourci ou le menu du clic droit |
+| `Échap` | Fermer la visionneuse, la fenêtre de raccourci, le menu du clic droit ou le panneau des raccourcis sur téléphone |
+| `Alt+←` / `Alt+→` | Précédent / Suivant du navigateur : dossier précédent / suivant |
 | `Tab` / `Maj+Tab` | Passer d'une ligne de fichier à l'autre |
 | `Entrée` | Ouvrir le fichier ou dossier sélectionné |
 
@@ -315,10 +340,12 @@ monde en perd l'accès immédiatement.
 Non. Un navigateur récent suffit.
 
 **Puis-je l'utiliser sur un téléphone ou une tablette ?**
-Sur tablette, oui : tout fonctionne au toucher (touchez pour ouvrir, faites
-glisser la bordure entre les panneaux pour redimensionner). Sur téléphone,
-utilisez l'orientation paysage ; la mise en page est conçue pour des écrans
-plus larges.
+Oui. Tout fonctionne au toucher. Sur téléphone, le panneau des raccourcis
+s'ouvre avec le bouton **☰** ([§5.2](#52-sur-un-téléphone)).
+
+**Puis-je envoyer à un collègue le lien d'un dossier ?**
+Oui : copiez la barre d'adresse ([§5.1](#51-liens-favoris-et-bouton-précédent)).
+Il lui faut son propre compte pour l'ouvrir.
 
 **Puis-je envoyer, renommer ou supprimer des fichiers ?**
 Non. Quick FTP Explorer est volontairement en lecture seule.

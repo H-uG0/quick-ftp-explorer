@@ -1,7 +1,13 @@
 /*
- * login.js - explain why the previous sign-in attempt bounced back here.
- * The server redirects to /login?error=<code>; the form itself is plain HTML.
+ * login.js - explain why the previous sign-in attempt bounced back here
+ * (the server redirects to /login?error=<code>), and carry the URL
+ * fragment through sign-in, so a shared link to a folder still opens that
+ * folder. The form itself is plain HTML.
  */
+
+// Browsers keep the fragment across the "/" -> "/login" redirect, but a
+// form post would drop it: hand it to the server, which redirects back to it.
+document.getElementById("next").value = location.hash;
 
 const MESSAGES = {
   invalid: "Wrong username or password.",

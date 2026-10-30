@@ -6,15 +6,22 @@
  * kind: images, video and audio in the in-app viewer; PDF and text in a new
  * tab; everything else downloads. Admins also manage shortcuts here: "+ New"
  * in the left pane, or right-click a shortcut for Edit / Delete.
+ *
+ * The open folder lives in the URL fragment ("#/<id>/<path>"): links can be
+ * bookmarked or shared, and Back / Forward move between folders. On narrow
+ * screens the left pane becomes a drawer behind the "☰" button.
  */
 
 import * as api from "./api.js";
 import { tree, files, el } from "./ui.js";
 import { viewer } from "./viewer.js";
 import { kindFor, inlineType } from "./filetypes.js";
-import { splitLabel, composeLabel } from "./util.js";
+import { splitLabel, composeLabel, formatHash, parseHash } from "./util.js";
 
 const $ = (id) => document.getElementById(id);
+const appEl = $("app");
+const menuBtn = $("menu-toggle");
+const narrow = window.matchMedia("(max-width: 700px)");
 const listEl = $("shortcut-list");
 const emptyHint = $("empty-hint");
 const leftPane = $("left-pane");
@@ -105,6 +112,11 @@ function renderBreadcrumb(sel) {
 
 async function onSelect(sel) {
   current = sel;
+  // A new history entry per folder, unless the URL already says so (Back /
+  // Forward, a pasted link, the page loading).
+  const hash = formatHash(sel.shortcut.id, sel.path);
+  if (location.hash !== hash) history.pushState(null, "", hash);
+  if (narrow.matches) setDrawer(false);
   renderBreadcrumb(sel);
   refreshBtn.disabled = false;
   document.title = `${sel.shortcut.label}${sel.path === "/" ? "" : " – " + sel.path} · Quick FTP Explorer`;
@@ -125,9 +137,41 @@ function clearSelection() {
   tree.clearSelection();
   refreshBtn.disabled = true;
   document.title = "Quick FTP Explorer";
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
   renderBreadcrumb(null);
   renderRight(null);
 }
+
+// Show whatever folder the URL names (page load, Back / Forward, an edited
+// or pasted link). Unknown shortcuts are ignored; no fragment clears the view.
+function followUrl() {
+  const target = parseHash(location.hash);
+  if (!target) {
+    if (current) clearSelection();
+    return;
+  }
+  if (current && current.shortcut.id === target.id && current.path === target.path) return;
+  const sc = shortcuts.find((s) => s.id === target.id);
+  if (sc) tree.reveal(sc, target.path);
+  else if (current) clearSelection();
+  else history.replaceState(null, "", location.pathname + location.search);
+}
+window.addEventListener("popstate", followUrl);
+window.addEventListener("hashchange", followUrl);
+
+/* ---- narrow screens: the left pane as a drawer ---- */
+
+function setDrawer(open) {
+  appEl.classList.toggle("drawer-open", open);
+  menuBtn.setAttribute("aria-expanded", String(open));
+}
+menuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setDrawer(!appEl.classList.contains("drawer-open"));
+});
+rightPane.addEventListener("pointerdown", () => {
+  if (narrow.matches) setDrawer(false);
+});
 
 async function refresh() {
   if (!current) return;
@@ -237,6 +281,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     ctxMenu.hidden = true;
     closeModal();
+    setDrawer(false);
   }
 });
 
@@ -380,6 +425,9 @@ try {
   await loadShortcuts();
   renderBreadcrumb(null);
   renderRight(null);
+  followUrl();
+  // On a phone, start where the shortcuts are, unless a link opened a folder.
+  if (narrow.matches && !current) setDrawer(true);
 } catch (err) {
   if (err.status !== 401) rightPane.replaceChildren(el("p", "placeholder placeholder-error", err.message));
 }

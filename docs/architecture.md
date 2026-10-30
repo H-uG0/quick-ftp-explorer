@@ -379,6 +379,27 @@ rows in the table both navigate this way, so any folder can be reached
 whether or not its ancestors were open. In the HTA, the target had to be
 rendered already.
 
+**The URL names the open folder.** `#/<shortcut id>/<folder>/<folder>`,
+each part URL-encoded (`formatHash` / `parseHash` in `util.js`):
+
+- Every navigation pushes a history entry, unless the URL already names
+  that folder, so Back and Forward move between folders and loops are
+  impossible.
+- `popstate` / `hashchange` and page load call `followUrl()`, which
+  reveals the folder. Links to unknown shortcuts are dropped quietly.
+- Signing in keeps the link. Browsers carry the fragment across the
+  `/` → `/login` redirect; `login.js` copies it into the form's `next`
+  field, and the server redirects back to `/` + `next` after sign-in.
+  `next` is accepted only as `#/` followed by printable ASCII, so it can
+  never redirect out of the app.
+- An expired session (a 401 from the API) keeps it too.
+
+**Narrow screens** (≤ 700 px, i.e. phones). The left pane becomes a drawer
+behind a **☰** button. It starts open when no folder is shown, and closes
+on any selection, on `Esc` or on a tap outside. The table drops its Type
+and Modified columns, the splitter disappears and the top bar compacts.
+CSS media queries do most of it; `app.js` only toggles `drawer-open`.
+
 **Opening a file** follows `filetypes.js`:
 
 - images, playable video and audio open in the viewer;
@@ -449,7 +470,7 @@ dependencies:
   response, the audit trail, and `cli import` run as a real subprocess.
 - `tests/filetypes.test.js`: nothing that can carry script is ever inline.
 - `tests/util.test.js`: the UI's pure helpers (natural sort, labels, sizes,
-  paths).
+  paths, folder links).
 - `tests/ftp.test.js`: path and range parsing, error mapping, parity with
   the legacy parser on `tests/fixtures/listing-unix.txt`, and the gateway
   against a server. Covered: the exact `CWD a` / `CWD b` / `LIST`

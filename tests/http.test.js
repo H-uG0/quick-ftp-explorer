@@ -123,6 +123,19 @@ describe("sign-in and sessions", () => {
     assert.equal((await t.request("/login", { headers: { cookie } })).headers.get("location"), "/");
   });
 
+  test("a folder link survives sign-in, but only a folder link", async () => {
+    const withNext = (next, password = PASSWORD) => t.request("/login", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ username: "alice", password, next }),
+    });
+    assert.equal((await withNext("#/main-nvr/Images/%C3%A9t%C3%A9")).headers.get("location"), "/#/main-nvr/Images/%C3%A9t%C3%A9");
+    assert.equal((await withNext("#/x", "wrong-password!")).headers.get("location"), "/login?error=invalid#/x");
+    for (const evil of ["//evil.example.com", "https://evil.example.com", "#/a b", "#/a\r\nSet-Cookie: x=1", "/admin"]) {
+      assert.equal((await withNext(evil)).headers.get("location"), "/", evil);
+    }
+  });
+
   test("sign-out clears the cookie", async () => {
     const { cookie } = await t.login("bob");
     const res = await t.request("/logout", { method: "POST", headers: { cookie } });

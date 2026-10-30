@@ -34,7 +34,8 @@ async function call(method, url, body) {
     throw new ApiError(0, "The server can't be reached. Check your connection and try again.");
   }
   if (res.status === 401) {
-    location.assign("/login?error=expired");
+    // Keep the fragment: after signing in again, the same folder reopens.
+    location.assign("/login?error=expired" + location.hash);
     throw new ApiError(401, "Your session has expired.");
   }
   if (res.status === 204) return null;

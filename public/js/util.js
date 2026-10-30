@@ -8,6 +8,8 @@
  *   filterEntries(entries, text)    case-insensitive substring match on names
  *   splitLabel(label, username)     the custom part of "<username> <custom>"
  *   composeLabel(username, custom)  the reverse
+ *   formatHash(id, path)            "#/<shortcut id>/<folder>/<folder>", each part URL-encoded
+ *   parseHash(hash)                 the reverse: { id, path }, or null
  */
 
 // Natural order: "clip 2" sorts before "clip 10", as people expect.
@@ -49,4 +51,23 @@ export function splitLabel(label, username) {
 
 export function composeLabel(username, custom) {
   return custom ? `${username} ${custom}` : username;
+}
+
+// The URL fragment names the open folder, so links can be bookmarked or
+// shared and the browser's Back / Forward buttons move between folders.
+export function formatHash(id, path) {
+  const segments = String(path).split("/").filter(Boolean).map(encodeURIComponent);
+  return `#/${encodeURIComponent(id)}/${segments.join("/")}`;
+}
+
+export function parseHash(hash) {
+  const [empty, id, ...segments] = String(hash ?? "").replace(/^#/, "").split("/");
+  if (empty !== "" || !id) return null;
+  try {
+    const parts = segments.filter(Boolean).map(decodeURIComponent);
+    if (parts.some((p) => p === "." || p === "..")) return null;
+    return { id: decodeURIComponent(id), path: "/" + parts.join("/") };
+  } catch {
+    return null;   // malformed %-escapes
+  }
 }
