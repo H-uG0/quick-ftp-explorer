@@ -1,0 +1,11 @@
+total 12
+drwxr-xr-x 2 ftp ftp   4096 Apr 01 2026 .
+drwxr-xr-x 5 ftp ftp   4096 Mar 15 2026 ..
+drwxr-xr-x 2 ftp ftp   4096 Apr 01 2026 Images
+drwxr-xr-x 2 ftp ftp   4096 Apr 01 12:34 Dossier avec accents éàü
+-rw-r--r-- 1 ftp ftp  22509 Dec 20 2025 file-with-no-spaces.mp4
+-rw-r--r-- 1 ftp ftp  33333 Jan 15 2026 file with several spaces.mp4
+-rw-r--r-- 1 ftp ftp      0 Feb 02 2026 empty.txt
+-rw-r--r-- 1 ftp ftp 123456 Mar 11 09:42 report with accents éàü.pdf
+lrwxrwxrwx 1 ftp ftp      7 Jan 01 2020 latest -> file-with-no-spaces.mp4
+-rw-r--r-- 1 ftp ftp   1024 Apr 18 2026 photo été.jpg

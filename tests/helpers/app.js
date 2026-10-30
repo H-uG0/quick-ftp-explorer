@@ -3,6 +3,7 @@
  * throwaway data directory, plus small fetch wrappers.
  *
  *   const t = await startApp({ TRUST_PROXY: "1" });   // extra env vars
+ *   const t = await startApp({}, { ftp: { stallMs: 200 } });   // gateway overrides
  *   await t.app.users.add("alice", "password-123", "admin");
  *   const { cookie } = await t.login("alice", "password-123");
  *   const res = await t.request("/api/me", { headers: { cookie } });
@@ -18,10 +19,19 @@ import { createApp } from "../../server/routes.js";
 
 export const PASSWORD = "correct-horse-battery";
 
-export async function startApp(env = {}) {
+// Poll until cond() holds (e.g. "the FTP data socket is closed"), or fail.
+export async function waitFor(cond, what = "condition", ms = 5000) {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+export async function startApp(env = {}, { ftp } = {}) {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "qfe-test-"));
   const cfg = loadConfig({ DATA_DIR: dataDir, ...env });
-  const app = await createApp(cfg, { log: () => {} });
+  const app = await createApp(cfg, { log: () => {}, ftp });
   const server = http.createServer(app.handler);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;

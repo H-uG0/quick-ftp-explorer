@@ -16,9 +16,10 @@ own [architecture notes](../legacy/docs/architecture.md).
 
 ## Principles
 
-- **Node.js built-ins only** (`node:http`, `node:crypto`, `node:test`); no
-  web framework. The one planned runtime dependency is `basic-ftp`, for the
-  FTP protocol itself.
+- **Node.js built-ins** (`node:http`, `node:crypto`, `node:test`); no web
+  framework. The only runtime dependency is
+  [`basic-ftp`](https://github.com/patrickjuchli/basic-ftp) (MIT, no
+  dependencies of its own), for the FTP protocol itself.
 - **No build step.** The browser loads `public/` exactly as it is in the
   repository.
 - **Secrets stay on the server.** Neither account passwords nor FTP
@@ -34,6 +35,8 @@ own [architecture notes](../legacy/docs/architecture.md).
 | `server/http.js` | The HTTP toolkit: dispatch, body readers, cookies, static files, security headers, request log. |
 | `server/auth.js` | Accounts (`users.json`), scrypt hashing, session tokens, login throttling. |
 | `server/store.js` | FTP shortcuts (`shortcuts/*.json`), validation, safe renames. |
+| `server/ftp.js` | The FTP gateway: listings and file streaming over `basic-ftp`. |
+| `public/js/filetypes.js` | What each file type is and whether it may render inline. Shared by server and browser. |
 | `server/audit.js` | Append-only audit trail (`audit.jsonl`). |
 | `server/files.js` | Atomic writes (temp file + rename), JSON reads, JSON-stream splitting. |
 | `server/cli.js` | Account administration and shortcut import from the server's shell. |
@@ -190,6 +193,16 @@ are read fine; unreadable files are skipped with a warning.
 response at all. Browsing only needs a label, so regular users are not even
 told where the FTP server lives.
 
+### Browsing API
+
+| Method + path | Role | Response |
+|---|---|---|
+| `GET /api/shortcuts/:id/list?path=/a/b` | user | `{ path, entries: [{ name, isDir, isLink, size, date }] }` |
+| `GET` or `HEAD /api/shortcuts/:id/file?path=/a/b/c.mp4[&download=1]` | user | The file, streamed, with `Range` support |
+
+The entry shape is the one the HTA's parser produced, so the ported UI
+consumes it unchanged. See [The FTP gateway](#the-ftp-gateway) below.
+
 ### Importing shortcuts from the HTA
 
 Because the format is the same, the HTA's `legacy/config/shortcuts/*.json`
@@ -208,6 +221,121 @@ non-zero if any record failed. Reading from stdin works even when the
 container's filesystem is read-only. The JSON objects may simply be
 concatenated (`cat`), BOMs included.
 
+## The FTP gateway
+
+`server/ftp.js` is the only code that talks to FTP servers. Every request
+opens its own connection, logs in, does its one job and closes the
+connection, as the HTA's curl calls did.
+
+### Paths
+
+UI paths are `/`-rooted but **relative to the FTP login directory**,
+exactly like the HTA's curl URLs (`ftp://host/a/b/` means "a/b inside the
+home directory"). The gateway walks them with one `CWD` per segment (curl's
+default "multicwd"), then sends a bare `LIST`, or `SIZE` / `RETR` with the
+file's basename. Spaces and accents need no escaping.
+
+`parseRemotePath` refuses (400) anything that is not `/`-rooted, any `.` or
+`..` segment, control characters (CR/LF would inject FTP commands),
+backslashes (a separator on Windows FTP servers, which could hide `..`) and
+paths over 1024 characters.
+
+### Passive mode behind NAT
+
+Data connections try EPSV first, then PASV. For PASV the gateway **ignores
+the address in the server's reply and connects to the host it is already
+talking to**, which is curl's default (`--ftp-skip-pasv-ip`) and what makes
+the HTA work with servers behind NAT. Such servers announce their private
+address in the reply. basic-ftp 6 refuses that by default, and its
+`allowSeparateTransferHost` escape hatch would accept any host (FTP
+bounce). The custom mode can only ever reach the server we logged in to.
+It deep-imports two helpers from `basic-ftp/dist/transfer.js`, which is
+why the dependency is pinned to patch releases (`~6.2.3`); a test proves
+both the fix and that plain basic-ftp would fail.
+
+The mode that worked is remembered per server, so a NAT that breaks EPSV
+costs one timeout per server, not one per request.
+
+### Listings
+
+`client.list()` uses MLSD when the server offers it, else `LIST`. The Unix
+and DOS parsers are more forgiving than the HTA's Unix-only one; on the
+legacy fixture they produce the same 8 entries. `LIST -a` is never sent:
+curl sends a plain `LIST`, and `-a` adds dotfiles and confuses some servers.
+Dates are whatever the server prints (`Apr 01 2026`), or `YYYY-MM-DD HH:MM`
+(UTC) for MLSD. A listing may not exceed 8 MiB or take longer than 60 s
+(curl had `--max-time 60`).
+
+### Streaming files
+
+1. `SIZE` (optional in FTP: without it, the file goes out whole with
+   `Accept-Ranges: none` and no length).
+2. One `Range` is honoured (`a-b`, `a-`, `-n`); multi-range requests get
+   the whole file and ranges past the end get a 416. The transfer then
+   starts at the offset (`REST`). This is what lets videos seek.
+3. Bytes flow through a small `Writable` into the response, with
+   backpressure. Two details matter:
+   - **The response is never handed to basic-ftp.** `downloadTo` always
+     `end()`s its destination, even after a failure, which would pass a
+     truncated file off as complete. The gateway ends the response only
+     when the transfer succeeded, and destroys it otherwise.
+   - **Headers go out with the first byte**, so an FTP error before any
+     data still becomes a clean JSON error.
+4. The FTP connection is closed early when the browser goes away (a seek,
+   a closed tab), when a bounded range has been sent, or when the reader
+   stalls. A paused `<video>` stops reading, and since basic-ftp 6.2 such
+   backpressure no longer times out, so after 60 s without progress the
+   gateway closes it. The browser simply re-requests when playback resumes.
+
+`HEAD` answers with the headers and never starts a transfer.
+
+### What renders in the browser
+
+`public/js/filetypes.js` is one table, imported by both the server and the
+browser, so they cannot disagree. Only images, browser-playable video and
+audio, PDF and plain text are served inline. **Everything else, notably
+HTML, SVG, XML and scripts, goes out as `application/octet-stream` +
+`attachment`**: anyone who can put a file on the FTP server would otherwise
+run script in the app's origin and act as the signed-in user. Every file
+response also carries `nosniff`, `Cache-Control: private, no-store`, an
+RFC 6266 `filename*` (accented names survive) and a `sandbox` CSP. PDFs are
+the one exception to the CSP: Chrome's viewer refuses to render under a
+sandbox CSP, and a PDF runs no page script. `download=1` forces an
+attachment for anything.
+
+### Protecting the server's IP
+
+All users' FTP traffic now leaves from one address, the VPS. That has
+consequences the HTA never had:
+
+- **Connection cap.** At most `FTP_MAX_CONNECTIONS` (default 10) connections
+  per FTP host at once, for everyone together. Extra requests queue for up
+  to 20 s, then get a 503. A slot is handed on only once the old TCP
+  connection has fully closed, so a strict per-IP limit on the server is
+  never exceeded during the handover. Keep it at or below the server's own
+  per-IP limit.
+- **Login-failure pause.** After a `530`, the gateway stops trying that
+  shortcut for 5 minutes and answers with the cached error. Otherwise users
+  clicking around a shortcut with a wrong password could get the VPS banned
+  by fail2ban & co., which would lock out every user. An admin editing the
+  shortcut lifts the pause immediately.
+- `FTP_ALLOWED_HOSTS` is checked again at connect time, which covers
+  hand-edited shortcut files too.
+
+### Errors
+
+FTP and network failures become readable messages in the same JSON error
+format. They never contain the server's address, which regular users are
+not shown:
+
+| Cause | Status |
+|---|---|
+| `530` login failed | 502. Never 401, which the UI reads as "your session expired". |
+| `550` not found / no permission | 404 |
+| `421` too many connections, or the queue wait ran out | 503 + `Retry-After` |
+| connection refused, DNS failure, timeout | 504 |
+| any other FTP reply | 502, with the server's reply text |
+
 ## Audit trail
 
 `data/audit.jsonl` gets one JSON object per line for security-relevant
@@ -215,7 +343,11 @@ events, each with time, user and client IP:
 
 - `login`, `login_failed`, `login_blocked`, `logout`;
 - `shortcut_create`, `shortcut_update` (with `renamedTo` after a rename),
-  `shortcut_delete`, each with the shortcut `id`.
+  `shortcut_delete`, each with the shortcut `id`;
+- `list` (shortcut `id` and `path`) and `file` (`id`, `path`, and
+  `download: true` for forced downloads). A file is logged once per
+  opening: ranged requests that do not start at byte 0 (video seeks) are
+  not logged again.
 
 Passwords are never logged. CCTV footage is personal data, so who accessed
 what must be accountable. Writes are queued so lines never interleave, and
@@ -234,6 +366,8 @@ a failed write is reported on stderr without failing the request.
 | `DEFAULT_FTP_HOST` | `127.0.0.1` | Host prefilled in the "New shortcut" form. |
 | `DEFAULT_FTP_PORT` | `21` | Port prefilled in the "New shortcut" form. |
 | `FTP_ALLOWED_HOSTS` | any | Comma-separated hosts shortcuts may point at, e.g. your one FTP server. |
+| `FTP_TIMEOUT_MS` | `15000` | How long the FTP server may stay silent before a request fails. |
+| `FTP_MAX_CONNECTIONS` | `10` | Simultaneous FTP connections per server, for all users together. |
 
 `npm run dev` and `npm run cli` also read a local `.env` file when present.
 
@@ -249,6 +383,28 @@ dependencies:
   adds 409s, safe renames, the password rules and validation.
 - `tests/shortcuts.test.js`: the shortcut API by role, no password in any
   response, the audit trail, and `cli import` run as a real subprocess.
+- `tests/filetypes.test.js`: nothing that can carry script is ever inline.
+- `tests/ftp.test.js`: path and range parsing, error mapping, parity with
+  the legacy parser on `tests/fixtures/listing-unix.txt`, and the gateway
+  against a server. Covered: the exact `CWD a` / `CWD b` / `LIST`
+  sequence, login-directory-relative paths, NAT'd PASV (and proof plain
+  basic-ftp fails there), MLSD, the login-failure pause, the connection
+  cap and queue, deadlines, abandoned requests.
+- `tests/files-api.test.js`: browsing over HTTP: exact bytes, ranges, 416,
+  `HEAD`, HTML/SVG served as attachments, PDF handling, servers without
+  `SIZE`, and FTP connections closing when a download is abandoned, a
+  range is satisfied, or the reader stalls.
+
+`tests/helpers/fake-ftp-server.js` is a small, real FTP server (`node:net`,
+read-only) with switches for awkward servers: no EPSV, a private PASV
+address, MLSD, no `SIZE`/`REST`, connection caps, stalls, slow listings.
+It logs every command, so tests can assert what was sent. No test ever
+touches a real FTP server.
+
+For development, `npm run dev:ftp` serves a demo tree on `127.0.0.1:2121`
+(user `demo`, password `demo`): a real PNG and PDF, accented names, and
+HTML/SVG files that must download. `node tests/dev-ftp.js --root <folder>`
+serves a local folder instead, e.g. real clips to try video seeking.
 - `tests/http.test.js`: the real server on an ephemeral port with a
   throwaway data directory (`tests/helpers/app.js`): pages, static files,
   headers, sign-in, sign-out, throttling, proxy handling, the audit trail.

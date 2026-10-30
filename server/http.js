@@ -216,7 +216,7 @@ function fail(ctx, err) {
   if (res.headersSent) {
     // Mid-stream: abort the connection so the client sees a failure rather
     // than a response that merely looks short.
-    res.destroy(err);
+    res.destroy();
     return;
   }
   const status = err instanceof HttpError ? err.status : 500;

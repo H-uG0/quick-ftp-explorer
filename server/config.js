@@ -44,5 +44,8 @@ export function loadConfig(env = process.env) {
     defaultFtpPort: int(env.DEFAULT_FTP_PORT, 21, 1, 65535, "DEFAULT_FTP_PORT"),
     // Optional lockdown: when set, shortcuts may only point at these hosts.
     ftpAllowedHosts: list(env.FTP_ALLOWED_HOSTS),
+    ftpTimeoutMs: int(env.FTP_TIMEOUT_MS, 15000, 1000, 600000, "FTP_TIMEOUT_MS"),
+    // Per FTP host:port, for all users together: they all connect from this one IP.
+    ftpMaxConnections: int(env.FTP_MAX_CONNECTIONS, 10, 1, 1000, "FTP_MAX_CONNECTIONS"),
   });
 }

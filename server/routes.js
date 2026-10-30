@@ -2,12 +2,15 @@
  * routes.js - the application: wires config, accounts, shortcuts, the audit
  * trail and static files into the route table.
  *
- *   createApp(cfg, { log }) -> { handler, users, shortcuts, audit }
+ *   createApp(cfg, { log, ftp }) -> { handler, users, shortcuts, audit }
+ *                                   (`ftp` overrides gateway timings, for tests)
  *
  * Pages:  GET /  GET /login  POST /login  POST /logout
  * API:    GET /api/me
  *         GET /api/shortcuts                     (admins also see host, port, username)
  *         POST /api/shortcuts  PUT|DELETE /api/shortcuts/:id   (admins only)
+ *         GET /api/shortcuts/:id/list?path=      folder listing
+ *         GET|HEAD /api/shortcuts/:id/file?path=[&download=1]   file stream (Range)
  * Ops:    GET /healthz
  *
  * FTP passwords never appear in any response.
@@ -21,13 +24,18 @@ import {
 } from "./http.js";
 import { createUserStore, createSessions, createLimiter, loadSessionSecret } from "./auth.js";
 import { createShortcutStore } from "./store.js";
+import { createGateway, parseRemotePath } from "./ftp.js";
 import { createAudit } from "./audit.js";
+import { HttpError } from "./http.js";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const COOKIE = "qfe_session";
-const SHORTCUT_PATH = /^\/api\/shortcuts\/(?<id>[A-Za-z0-9._-]+)$/;
+const ID = "(?<id>[A-Za-z0-9._-]+)";
+const SHORTCUT_PATH = new RegExp(`^/api/shortcuts/${ID}$`);
+const LIST_PATH = new RegExp(`^/api/shortcuts/${ID}/list$`);
+const FILE_PATH = new RegExp(`^/api/shortcuts/${ID}/file$`);
 
-export async function createApp(cfg, { log } = {}) {
+export async function createApp(cfg, { log, ftp } = {}) {
   await mkdir(cfg.dataDir, { recursive: true, mode: 0o700 });
   const staticFiles = await loadStatic(PUBLIC_DIR);
   const users = createUserStore(path.join(cfg.dataDir, "users.json"));
@@ -38,6 +46,12 @@ export async function createApp(cfg, { log } = {}) {
   });
   const shortcuts = createShortcutStore(path.join(cfg.dataDir, "shortcuts"), {
     allowedHosts: cfg.ftpAllowedHosts,
+  });
+  const gateway = createGateway({
+    timeoutMs: cfg.ftpTimeoutMs,
+    maxConnections: cfg.ftpMaxConnections,
+    allowedHosts: cfg.ftpAllowedHosts,
+    ...ftp,
   });
   const audit = createAudit(path.join(cfg.dataDir, "audit.jsonl"));
   const limiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
@@ -112,15 +126,47 @@ export async function createApp(cfg, { log } = {}) {
   async function updateShortcut(ctx) {
     const { id } = ctx.params;
     const newId = await shortcuts.update(id, await readJson(ctx.req));
+    // An admin edit is the fix for a failed login: retry at once.
+    gateway.forget(id);
+    gateway.forget(newId);
     audit("shortcut_update", { user: ctx.user.name, ip: ctx.ip, id, ...(newId !== id && { renamedTo: newId }) });
     return { id: newId };
   }
 
   async function deleteShortcut(ctx) {
     await shortcuts.remove(ctx.params.id);
+    gateway.forget(ctx.params.id);
     audit("shortcut_delete", { user: ctx.user.name, ip: ctx.ip, id: ctx.params.id });
     ctx.res.writeHead(204, { "Cache-Control": "no-store" });
     ctx.res.end();
+  }
+
+  async function requireShortcut(id) {
+    const sc = await shortcuts.get(id);
+    if (!sc) throw new HttpError(404, "No such shortcut");
+    return sc;
+  }
+
+  async function listFolder(ctx) {
+    const sc = await requireShortcut(ctx.params.id);
+    const rawPath = ctx.url.searchParams.get("path") || "/";
+    const normalized = "/" + parseRemotePath(rawPath).join("/");
+    audit("list", { user: ctx.user.name, ip: ctx.ip, id: sc.id, path: normalized });
+    return { path: normalized, entries: await gateway.list(sc, rawPath, ctx.res) };
+  }
+
+  async function streamFile(ctx) {
+    const sc = await requireShortcut(ctx.params.id);
+    const rawPath = ctx.url.searchParams.get("path") || "";
+    const normalized = "/" + parseRemotePath(rawPath).join("/");
+    const download = ctx.url.searchParams.get("download") === "1";
+    // One line per opened file: seeking in a video sends more ranged requests
+    // for the same file, which are not worth a line each.
+    const range = ctx.req.headers.range;
+    if (ctx.req.method === "GET" && (!range || /^bytes=0-/.test(range))) {
+      audit("file", { user: ctx.user.name, ip: ctx.ip, id: sc.id, path: normalized, ...(download && { download }) });
+    }
+    await gateway.stream(sc, rawPath, ctx.req, ctx.res, { download });
   }
 
   /* ---- route table ---- */
@@ -142,6 +188,8 @@ export async function createApp(cfg, { log } = {}) {
     { method: "POST", path: /^\/api\/shortcuts$/, auth: "admin", handler: createShortcut },
     { method: "PUT", path: SHORTCUT_PATH, auth: "admin", handler: updateShortcut },
     { method: "DELETE", path: SHORTCUT_PATH, auth: "admin", handler: deleteShortcut },
+    { method: "GET", path: LIST_PATH, auth: "user", handler: listFolder },
+    { method: "GET", path: FILE_PATH, auth: "user", handler: streamFile },
   ];
 
   const handler = createHandler({
