@@ -565,8 +565,13 @@ dependencies:
   It exists because of the 2026-04-21 leak.
 - `tests/deploy.test.js`: guards on the deployment files. The
   `.dockerignore` allowlist, no blanket `COPY`, a non-root user, ffmpeg in
-  the image, the app service unpublished and hardened, and Caddy's
-  keep-alive below the app's.
+  the image, the app service unpublished and hardened, Caddy's keep-alive
+  below the app's, and a pipeline that deploys only `main`, only when
+  enabled, only to the pinned host key, with server details kept secret.
+- `tests/deploy-script.test.js`: `qfe-deploy` run by bash against a
+  throwaway git origin and a fake `docker`: it deploys commits of `main`,
+  refuses any other request without touching anything, and rolls back a
+  version that doesn't come up. Linux and macOS (CI); skipped on Windows.
 
 `tests/helpers/fake-ftp-server.js` is a small, real FTP server (`node:net`,
 read-only) with switches for awkward servers: no EPSV, a private PASV
@@ -579,8 +584,10 @@ For development, `npm run dev:ftp` serves a demo tree on `127.0.0.1:2121`
 HTML/SVG files that must download. `node tests/dev-ftp.js --root <folder>`
 serves a local folder instead, e.g. real clips to try video seeking.
 
-CI (`.github/workflows/test.yml`) runs the suite on Node 22 and 24 for every
-push and pull request.
+CI (`.github/workflows/ci.yml`) runs the suite on Node 22 and 24 for every
+push and pull request, and builds and smoke-tests the Docker image: hardened
+as in production, it must answer `/healthz`, report video conversion on,
+and pass its own health check. Pushes to `main` then deploy (below).
 
 ## Deployment
 
@@ -593,3 +600,13 @@ See the [deployment guide](deployment.md). In short:
   capabilities, `no-new-privileges`, 512 MB, `TRUST_PROXY=1`, a `qfe-data`
   volume) behind Caddy (`deploy/Caddyfile`), which serves `DOMAIN` with an
   automatic certificate. Logs rotate at 5 × 10 MB.
+- `deploy/bootstrap.sh`: prepares a fresh Debian or Ubuntu server once
+  (Docker from Docker's repository, firewall, automatic updates, the
+  `deploy` user, the checkout in `/opt/quick-ftp-explorer`, `.env`).
+- Continuous deployment: after the tests and the image check, the `deploy`
+  job of `ci.yml` sends `deploy <commit>` over SSH, with a key that can run
+  nothing but `qfe-deploy` (`deploy/remote-deploy.sh`). That script checks
+  the commit is on `main`, checks it out, rebuilds, restarts with
+  `docker compose up --wait`, and returns to the previous commit if the app
+  doesn't come up healthy. It is switched on by the `DEPLOY_ENABLED`
+  variable; the server's details are GitHub secrets.

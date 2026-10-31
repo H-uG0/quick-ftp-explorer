@@ -1,0 +1,120 @@
+# CI and deployment (docs/deployment.md, "Continuous deployment").
+#
+# Every push and pull request: the tests on Node.js 22 and 24, and the
+# Docker image built and smoke-tested. A push to main then deploys to the
+# production server over SSH, once the repository variable DEPLOY_ENABLED
+# is "true". "Run workflow" with a commit of main deploys that commit
+# instead: that is the rollback.
+#
+# The repository is public, and so are these logs: everything about the
+# server (address, port, login, domain, key) is a secret, which GitHub
+# masks in the output.
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit of main to deploy (empty for the newest)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - name: The compose file is valid
+        run: DOMAIN=ci.example.com docker compose config --quiet
+      - name: Build the image
+        run: docker build --pull --tag qfe:ci .
+      - name: Smoke-test the image, hardened as in docker-compose.yml
+        run: |
+          docker run --detach --name qfe --read-only --tmpfs /tmp --volume qfe-ci-data:/data \
+            --cap-drop ALL --security-opt no-new-privileges:true --publish 127.0.0.1:8080:8080 qfe:ci
+          # --retry-all-errors: Docker's port proxy answers (empty) before the app listens.
+          curl --fail --silent --show-error --retry 20 --retry-all-errors --retry-delay 1 http://127.0.0.1:8080/healthz
+          docker exec qfe ffmpeg -hide_banner -version | head -n 1
+          for i in $(seq 20); do docker logs qfe 2>&1 | grep -q "Video conversion: on" && break; sleep 0.5; done
+          docker logs qfe 2>&1 | grep "Video conversion: on"
+          for i in $(seq 60); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' qfe)"
+            [ "$status" = healthy ] && break
+            sleep 2
+          done
+          echo "health check: $status"
+          [ "$status" = healthy ]
+      - name: Container log
+        if: always()
+        run: docker logs qfe 2>&1 || true
+
+  deploy:
+    needs: [test, image]
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Which commit
+        id: commit
+        env:
+          WANTED: ${{ inputs.commit || github.sha }}
+        run: |
+          sha="$(git rev-parse --verify --quiet "$WANTED^{commit}")" || { echo "::error::Unknown commit: $WANTED"; exit 1; }
+          git merge-base --is-ancestor "$sha" origin/main || { echo "::error::$sha is not a commit of main"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Deploy over SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          LOGIN: ${{ secrets.DEPLOY_USER || 'deploy' }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        # The key can run nothing but qfe-deploy on the server
+        # (deploy/remote-deploy.sh), and the host key must match.
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "$PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes -o ConnectTimeout=30 -o ServerAliveInterval=30 \
+            "$LOGIN@$HOST" "deploy $SHA"
+      - name: The site answers
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+        run: curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors "https://$DOMAIN/healthz"
+      - name: Forget the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

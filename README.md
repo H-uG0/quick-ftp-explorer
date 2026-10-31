@@ -78,6 +78,11 @@ docker compose up -d --build    # the app + Caddy, which gets the HTTPS certific
 docker compose exec app node server/cli.js user add alice --admin
 ```
 
+On a fresh Debian or Ubuntu server, `deploy/bootstrap.sh` does all of that
+in one go, and GitHub Actions can then deploy every push to `main` over SSH,
+rolling back if the new version doesn't come up
+([continuous deployment](docs/deployment.md#13-continuous-deployment)).
+
 The [deployment guide](docs/deployment.md) covers what it doesn't:
 preparing the FTP server now that all users connect from one IP, importing
 the HTA's shortcuts, accounts, updates, backups, the audit trail, running

@@ -2,7 +2,9 @@
  * deploy.test.js - guards on the deployment files, so a later edit can't
  * quietly leak data into the image or weaken the container: an allowlist
  * build context, no blanket COPY, a non-root user, an unpublished and
- * hardened app service, and the proxy/app keep-alive ordering.
+ * hardened app service, the proxy/app keep-alive ordering, and a pipeline
+ * that deploys only main, only when enabled, only to a known host key, with
+ * a key that can do nothing else on the server.
  */
 
 import { test } from "node:test";
@@ -64,4 +66,51 @@ test("Caddy's upstream keep-alive is shorter than the app's", () => {
   const proxySeconds = Number(/keepalive (\d+)s/.exec(read("deploy/Caddyfile"))[1]);
   const appMs = Number(/keepAliveTimeout = ([\d_]+)/.exec(read("server/index.js"))[1].replace(/_/g, ""));
   assert.ok(proxySeconds * 1000 < appMs, `${proxySeconds}s must stay below ${appMs}ms`);
+});
+
+// The lines of one job in .github/workflows/ci.yml (4-space indent).
+function job(name) {
+  const lines = read(".github/workflows/ci.yml").split("\n");
+  const start = lines.indexOf(`  ${name}:`);
+  assert.notEqual(start, -1, `job ${name} exists`);
+  const body = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^ {0,2}\S/.test(line)) break;
+    body.push(line);
+  }
+  return body.join("\n");
+}
+
+test("the pipeline deploys only main, only when enabled, after the tests and the image", () => {
+  const workflow = read(".github/workflows/ci.yml");
+  assert.doesNotMatch(workflow, /pull_request_target|workflow_run/, "no trigger that runs with secrets on fork code");
+  const deploy = job("deploy");
+  assert.match(deploy, /needs: \[test, image\]/);
+  assert.match(deploy, /vars\.DEPLOY_ENABLED == 'true'/);
+  assert.match(deploy, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(deploy, /environment: production/);
+  assert.match(deploy, /cancel-in-progress: false/, "a running deployment is never cut short");
+  assert.match(deploy, /merge-base --is-ancestor "\$sha" origin\/main/);
+});
+
+test("the deploy step trusts only the pinned host key, and logs no secret", () => {
+  const deploy = job("deploy");
+  assert.match(deploy, /StrictHostKeyChecking=yes/);
+  assert.doesNotMatch(read(".github/workflows/ci.yml"), /StrictHostKeyChecking=no|ssh-keyscan/);
+  assert.match(deploy, /KNOWN_HOSTS: \$\{\{ secrets\.DEPLOY_KNOWN_HOSTS \}\}/);
+  // Server details are secrets (masked in the public logs), never vars.
+  for (const name of ["DEPLOY_HOST", "DEPLOY_DOMAIN", "DEPLOY_SSH_KEY"]) {
+    assert.match(deploy, new RegExp(`secrets\\.${name}`), name);
+    assert.doesNotMatch(deploy, new RegExp(`vars\\.${name}`), name);
+  }
+  assert.doesNotMatch(deploy, /(echo|cat)\b[^\n]*\$(SSH_KEY|HOST|DOMAIN)\b/, "never printed");
+});
+
+test("on the server, the CI's key can only run qfe-deploy", () => {
+  const bootstrap = read("deploy/bootstrap.sh");
+  assert.match(bootstrap, /command="\/usr\/local\/bin\/qfe-deploy",restrict %s/);
+  assert.match(bootstrap, /install -m 0755 -o root -g root "\$APP_DIR\/deploy\/remote-deploy\.sh" \/usr\/local\/bin\/qfe-deploy/);
+  const remote = read("deploy/remote-deploy.sh");
+  assert.match(remote, /\^deploy\\ \(\[0-9a-f\]\{40\}\)\$/, "only a full commit id is accepted");
+  assert.match(remote, /merge-base --is-ancestor "\$target" origin\/main/);
 });

@@ -6,8 +6,11 @@ the [user manual](user-manual.en.md).
 
 The recommended setup is **Docker Compose**: the app plus
 [Caddy](https://caddyserver.com) in front of it, which obtains and renews
-the HTTPS certificate on its own. A [setup without
-Docker](#10-without-docker) is described at the end.
+the HTTPS certificate on its own. On a fresh Debian or Ubuntu server (an
+IONOS VPS, for instance) one script does the whole installation, and
+GitHub Actions can then deploy every change on its own: see
+[§13](#13-continuous-deployment). A [setup without
+Docker](#10-without-docker) is described too.
 
 ```
 users ──HTTPS──> Caddy (:443) ──> app (:8080, not published) ──FTP──> your FTP server
@@ -59,6 +62,10 @@ users ──HTTPS──> Caddy (:443) ──> app (:8080, not published) ──F
 ---
 
 ## 3. Install
+
+On a fresh Debian or Ubuntu server, `deploy/bootstrap.sh` does all of this
+section and more (Docker, firewall, automatic updates, the deploy user):
+see [§13](#13-continuous-deployment). By hand:
 
 ```
 git clone https://github.com/H-uG0/quick-ftp-explorer.git
@@ -146,6 +153,9 @@ removing someone affects nobody else.
 ---
 
 ## 7. Updating
+
+With continuous deployment ([§13](#13-continuous-deployment)), every push to
+`main` updates the server once the tests pass. By hand:
 
 ```
 cd quick-ftp-explorer
@@ -358,3 +368,134 @@ limit. See `docker-compose.yml`.
 certificate authority, so browsers show a certificate warning. To test
 against the demo FTP server (`npm run dev:ftp` on the host), use
 `host.docker.internal` as the shortcut's host.
+
+---
+
+## 13. Continuous deployment
+
+Once it is set up, every push to `main` is tested, built into the Docker
+image, smoke-tested, then deployed to the server over SSH. A deployment
+that doesn't come up healthy rolls itself back. Until it is switched on
+(`DEPLOY_ENABLED`, below), the pipeline only tests.
+
+```
+push to main ──> tests (Node 22, 24) ──────┐
+                 image: build + smoke test ┴─> ssh deploy@server "deploy <commit>"
+                                                └─> qfe-deploy: checkout, build, restart, health check
+                                                    (back to the previous commit if unhealthy)
+```
+
+The pieces: `.github/workflows/ci.yml` (the pipeline),
+`deploy/bootstrap.sh` (prepares the server, once) and
+`deploy/remote-deploy.sh` (installed on the server as `qfe-deploy`).
+
+### 13.1 What to ask the server's owner
+
+- **SSH access** as `root` (or a user with `sudo`): the server's IP
+  address, its SSH port, and a password or, better, your public key.
+- **The system:** Debian 12 or Ubuntu 22.04 / 24.04. On a new IONOS VPS,
+  pick Ubuntu 24.04.
+- **A domain name** for the app (for example `videos.` + the company's
+  domain), and someone who can create its DNS `A` record pointing at the
+  server.
+- **IONOS:** the server's firewall policy in the Cloud Panel must allow TCP
+  22, 80 and 443 (and UDP 443 for HTTP/3). The default Linux policy also
+  opens TCP 8443, which the app doesn't use.
+- **The FTP server:** allow the new server's IP address, as in
+  [§2](#2-prepare-the-network-and-the-ftp-server).
+
+### 13.2 Setting it up, once
+
+1. **A key pair for the pipeline**, on your PC. No passphrase: GitHub keeps
+   the private half as a secret.
+
+   ```
+   ssh-keygen -t ed25519 -N "" -C github-actions -f qfe-ci
+   ```
+
+2. **Prepare the server.** Connect as `root` and run the bootstrap script,
+   pasting the one line of `qfe-ci.pub` after `--ci-key`:
+
+   ```
+   curl -fsSLO https://raw.githubusercontent.com/H-uG0/quick-ftp-explorer/main/deploy/bootstrap.sh
+   less bootstrap.sh               # read what you run as root
+   bash bootstrap.sh --domain files.example.com --ftp-host 192.0.2.10 --ftp-port 21 \
+     --ci-key "ssh-ed25519 AAAA... github-actions"
+   ```
+
+   It installs Docker from Docker's own repository, git and automatic
+   security updates; opens the SSH port, 80 and 443 in the firewall; creates
+   the `deploy` user; clones the app into `/opt/quick-ftp-explorer`; writes
+   `.env` (`--ftp-host` also becomes `FTP_ALLOWED_HOSTS`); then builds and
+   starts the stack. `bash bootstrap.sh --help` lists the options; running
+   it again is safe. It ends with the server's SSH host key fingerprints and
+   the commands for the first administrator and the shortcut import
+   ([§4](#4-the-first-administrator), [§5](#5-shortcuts)).
+
+3. **Pin the server's host key.** On your PC:
+
+   ```
+   ssh-keyscan -p 22 <server address> > known_hosts
+   ssh-keygen -lf known_hosts
+   ```
+
+   The fingerprints must match those the bootstrap script printed;
+   otherwise you are not talking to your server.
+
+4. **GitHub.** In the repository's *Settings → Environments*, create an
+   environment named `production`. Optionally add *Required reviewers*,
+   so that each deployment waits for an approval, and limit its deployment
+   branches to `main`. Then add these **environment secrets**:
+
+   | Secret | Value |
+   |---|---|
+   | `DEPLOY_HOST` | the server's IP address or hostname |
+   | `DEPLOY_PORT` | its SSH port, if it isn't 22 |
+   | `DEPLOY_USER` | only if it isn't `deploy` |
+   | `DEPLOY_SSH_KEY` | the content of `qfe-ci`, the private key |
+   | `DEPLOY_KNOWN_HOSTS` | the content of `known_hosts` from step 3 |
+   | `DEPLOY_DOMAIN` | the app's domain, for the final check |
+
+   Finally, under *Settings → Secrets and variables → Actions →
+   Variables*, add `DEPLOY_ENABLED` = `true`. Delete `qfe-ci` from your PC,
+   or keep it in a password manager.
+
+5. **Try it:** *Actions → ci → Run workflow* on `main`. The deploy job ends
+   with `deployed <commit>` and a successful check of
+   `https://<domain>/healthz`.
+
+### 13.3 Day to day
+
+- **Deploying:** push or merge to `main`. Pull requests and other branches
+  are only tested.
+- **Rolling back:** *Actions → ci → Run workflow*, with an earlier commit of
+  `main` in the *commit* field.
+- **Pausing:** set `DEPLOY_ENABLED` to `false`.
+- **On the server:** `sudo -u deploy qfe-deploy status` shows the deployed
+  commit and the containers; `~deploy/deploys.log` lists every deployment.
+- **Settings:** edit `/opt/quick-ftp-explorer/.env` on the server, then
+  `cd /opt/quick-ftp-explorer && sudo -u deploy docker compose up -d`.
+  Deployments keep `.env`, and a `docker-compose.override.yml` if you add
+  one.
+
+### 13.4 How it is secured
+
+- **The pipeline's key can't open a shell.** In `~deploy/.ssh/authorized_keys`
+  it is bound to `qfe-deploy` (`command="/usr/local/bin/qfe-deploy",restrict`),
+  which accepts only `deploy <full commit id>`, for a commit of `main`, and
+  `status`. The script is owned by `root`; a deployment can't change it.
+- **The pipeline only talks to your server.** It checks the server's host
+  key against `DEPLOY_KNOWN_HOSTS` (`StrictHostKeyChecking=yes`).
+- **The repository and its Actions logs are public.** The server's address,
+  port, domain and key are therefore secrets, which GitHub masks in the
+  logs. Pull requests from forks get no secrets and never deploy.
+- **Whoever can push to `main` can deploy.** Protect the branch (*Settings
+  → Branches*: require a pull request and passing checks), and consider
+  required reviewers on the `production` environment.
+- `deploy` belongs to the `docker` group, which is as powerful as `root`,
+  like anything that runs Docker. It has no password and no other key.
+- Docker publishes Caddy's ports 80 and 443 itself, past the `ufw` rules;
+  nothing else is published, so the firewall governs everything else.
+- Once your own key works for `root` (or a `sudo` user), turn off SSH
+  password logins: `PasswordAuthentication no` in
+  `/etc/ssh/sshd_config.d/`, then `systemctl reload ssh`.
