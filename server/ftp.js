@@ -28,6 +28,7 @@ import { Client, FTPError, enterPassiveModeIPv6 } from "basic-ftp";
 import { parsePasvResponse, connectForPassiveTransfer } from "basic-ftp/dist/transfer.js";
 import { HttpError } from "./http.js";
 import { inlineType } from "../public/js/filetypes.js";
+import { msg } from "../public/js/i18n.js";
 
 const DEFAULTS = {
   timeoutMs: 15_000,          // the FTP server may stay silent this long
@@ -62,10 +63,10 @@ export function parseRemotePath(raw) {
   // Control characters could inject FTP commands; a backslash is a separator
   // on Windows FTP servers and would hide ".." segments.
   if (!p.startsWith("/") || p.length > 1024 || /[\x00-\x1f\x7f\\]/.test(p)) {
-    throw new HttpError(400, "Invalid path");
+    throw new HttpError(400, msg("err.badPath"));
   }
   const segments = p.split("/").filter(Boolean);
-  if (segments.some((s) => s === "." || s === "..")) throw new HttpError(400, "Invalid path");
+  if (segments.some((s) => s === "." || s === "..")) throw new HttpError(400, msg("err.badPath"));
   return segments;
 }
 
@@ -157,7 +158,7 @@ function createSlots(max, waitMs) {
       };
       const timer = setTimeout(() => {
         h.waiting.splice(h.waiting.indexOf(grant), 1);
-        reject(new HttpError(503, "The FTP server is busy (connection limit reached); try again in a moment",
+        reject(new HttpError(503, msg("err.ftpBusy"),
           { "Retry-After": "5" }));
       }, waitMs);
       h.waiting.push(grant);
@@ -175,16 +176,16 @@ export function toHttpError(err) {
   if (err instanceof HttpError) return err;
   const reply = String(err?.message ?? "").trim();
   if (err instanceof FTPError) {
-    if (err.code === 530) return new HttpError(502, `FTP login failed: ${reply}`);
-    if (err.code === 550) return new HttpError(404, `Not found, or no permission: ${reply}`);
+    if (err.code === 530) return new HttpError(502, msg("err.ftpLogin", { reply }));
+    if (err.code === 550) return new HttpError(404, msg("err.ftpNotFound", { reply }));
     if (err.code === 421) {
-      return new HttpError(503, `The FTP server refused the connection: ${reply}`, { "Retry-After": "30" });
+      return new HttpError(503, msg("err.ftpRefused", { reply }), { "Retry-After": "30" });
     }
-    return new HttpError(502, `The FTP server answered: ${reply}`);
+    return new HttpError(502, msg("err.ftpAnswered", { reply }));
   }
-  if (UNREACHABLE.has(err?.code)) return new HttpError(504, `Can't reach the FTP server (${err.code})`);
-  if (/timeout/i.test(reply)) return new HttpError(504, "The FTP server did not answer in time");
-  return new HttpError(502, `FTP connection failed: ${reply || err?.code || "unknown error"}`);
+  if (UNREACHABLE.has(err?.code)) return new HttpError(504, msg("err.ftpUnreachable", { code: err.code }));
+  if (/timeout/i.test(reply)) return new HttpError(504, msg("err.ftpSilent"));
+  return new HttpError(502, msg("err.ftpFailed", { reason: reply || err?.code || msg("err.ftpUnknown") }));
 }
 
 /* ---- responses ---- */
@@ -246,7 +247,7 @@ export function createGateway(options = {}) {
   async function connect(sc) {
     const host = sc.host.toLowerCase();
     if (o.allowedHosts.length && !o.allowedHosts.includes(host)) {
-      throw new HttpError(403, "This shortcut's host is not in FTP_ALLOWED_HOSTS");
+      throw new HttpError(403, msg("err.hostNotAllowed"));
     }
     const paused = loginPaused.get(sc.id);
     if (paused && paused.until > Date.now()) throw paused.error;
@@ -276,7 +277,7 @@ export function createGateway(options = {}) {
         const minutes = Math.max(1, Math.round(o.loginPauseMs / 60_000));
         loginPaused.set(sc.id, {
           until: Date.now() + o.loginPauseMs,
-          error: new HttpError(502, `${httpError.message} (not retried for ${minutes} min; an admin should check this shortcut)`),
+          error: new HttpError(502, msg("err.loginPaused", { reason: httpError.text ?? httpError.message, minutes })),
         });
       }
       throw httpError;
@@ -308,8 +309,8 @@ export function createGateway(options = {}) {
     try {
       return await work(client, () => reason, stop);
     } catch (err) {
-      if (reason === "client" || reason === "stall") throw new HttpError(499, "Client went away");
-      if (reason === "deadline") throw new HttpError(504, "The FTP server took too long to answer");
+      if (reason === "client" || reason === "stall") throw new HttpError(499, msg("err.clientGone"));
+      if (reason === "deadline") throw new HttpError(504, msg("err.ftpSlow"));
       throw toHttpError(err);
     } finally {
       clearTimeout(deadline);
@@ -386,7 +387,7 @@ export function createGateway(options = {}) {
     async stream(sc, rawPath, req, res, { download = false } = {}) {
       const segments = parseRemotePath(rawPath);
       const name = segments.pop();
-      if (!name) throw new HttpError(400, "Not a file path");
+      if (!name) throw new HttpError(400, msg("err.notAFile"));
       const type = download ? null : inlineType(name);
 
       await withConnection(sc, res, 0, async (client, why, stop) => {
@@ -394,7 +395,7 @@ export function createGateway(options = {}) {
         const size = await fileSize(client, name);
         const range = size === null ? null : parseRange(req.headers.range, size);
         if (range === "unsatisfiable") {
-          throw new HttpError(416, "Range not satisfiable", { "Content-Range": `bytes */${size}` });
+          throw new HttpError(416, msg("err.range"), { "Content-Range": `bytes */${size}` });
         }
         const start = range ? range.start : 0;
         const length = size === null ? null : (range ? range.end + 1 : size) - start;
@@ -417,9 +418,8 @@ export function createGateway(options = {}) {
     async fetch(sc, rawPath, { maxBytes }) {
       const segments = parseRemotePath(rawPath);
       const name = segments.pop();
-      if (!name) throw new HttpError(400, "Not a file path");
-      const tooBig = () => new HttpError(413,
-        `This file is too big to play here (over ${Math.round(maxBytes / 1048576)} MB): download it instead.`);
+      if (!name) throw new HttpError(400, msg("err.notAFile"));
+      const tooBig = () => new HttpError(413, msg("err.tooBigToPlay", { mb: Math.round(maxBytes / 1048576) }));
 
       return withConnection(sc, null, o.fetchDeadlineMs, async (client, why, stop) => {
         for (const segment of segments) await client.cd(segment);
@@ -446,7 +446,7 @@ export function createGateway(options = {}) {
         if (why() === "too big") throw tooBig();
         // A camera may still be uploading the newest clip: don't keep half of it.
         if (size !== null && total !== size) {
-          throw new HttpError(503, "This file is still being written; try again in a moment", { "Retry-After": "5" });
+          throw new HttpError(503, msg("err.stillWriting"), { "Retry-After": "5" });
         }
         return Buffer.concat(chunks, total);
       });

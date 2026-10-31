@@ -13,6 +13,7 @@
  */
 
 import { el } from "./ui.js";
+import { t } from "./i18n.js";
 
 let overlay = null, titleEl = null, downloadLink = null, body = null;
 
@@ -22,9 +23,9 @@ function ensureOverlay() {
   overlay.hidden = true;
   const header = el("div", "viewer-header");
   titleEl = el("span", "viewer-title");
-  downloadLink = el("a", "btn-secondary btn-sm", "Download");
+  downloadLink = el("a", "btn-secondary btn-sm", t("viewer.download"));
   downloadLink.setAttribute("download", "");
-  const closeBtn = el("button", "btn-secondary btn-sm", "Close (Esc)");
+  const closeBtn = el("button", "btn-secondary btn-sm", t("viewer.close"));
   closeBtn.type = "button";
   closeBtn.addEventListener("click", close);
   header.append(titleEl, downloadLink, closeBtn);
@@ -39,7 +40,7 @@ function ensureOverlay() {
 function showProblem(text) {
   const box = el("div", "viewer-message");
   const hint = el("p", "", text);
-  const link = el("a", "", "Download it instead");
+  const link = el("a", "", t("viewer.downloadInstead"));
   link.href = downloadLink.href;
   link.setAttribute("download", "");
   box.append(hint, link);
@@ -79,19 +80,16 @@ function close() {
   overlay.hidden = true;
 }
 
-const CANT_PLAY = "This file can't be played in this browser (unsupported format or codec). " +
-  "Download it to watch it in another player.";
-
 // A media element doesn't expose the server's error message: ask for the
 // first byte, which returns the message itself if the video isn't available.
 async function explain(url) {
   try {
     const res = await fetch(url, { headers: { Range: "bytes=0-0" } });
-    if (!res.ok) return (await res.json()).error || CANT_PLAY;
+    if (!res.ok) return (await res.json()).error || t("viewer.cantPlay");
   } catch {
     // offline, or not JSON: the generic message will do
   }
-  return CANT_PLAY;
+  return t("viewer.cantPlay");
 }
 
 function renderMedia(kind, url, fallbackUrl) {
@@ -100,7 +98,7 @@ function renderMedia(kind, url, fallbackUrl) {
   media.autoplay = true;
   media.preload = "metadata";
   // Converting a video takes a moment: say something meanwhile.
-  const status = el("p", "viewer-status", "Loading…");
+  const status = el("p", "viewer-status", t("common.loading"));
   let fallback = fallbackUrl;
   media.addEventListener("loadedmetadata", () => status.remove());
   media.addEventListener("error", async () => {
@@ -109,7 +107,7 @@ function renderMedia(kind, url, fallbackUrl) {
     if (fallback) {
       media.src = fallback;
       fallback = null;
-      status.textContent = "Converting the video for this browser…";
+      status.textContent = t("viewer.converting");
       if (!status.isConnected) body.append(status);   // gone if the first try got as far as metadata
       return;
     }
@@ -158,10 +156,10 @@ function renderImage(url) {
     applyScale(scale * factor);
   }
 
-  button("−", "Zoom out", () => bump(1 / 1.25));
-  button("Fit", "", applyFit);
+  button("−", t("viewer.zoomOut"), () => bump(1 / 1.25));
+  button(t("viewer.fit"), "", applyFit);
   button("100%", "", () => { applyScale(1); mode = "natural"; });
-  button("+", "Zoom in", () => bump(1.25));
+  button("+", t("viewer.zoomIn"), () => bump(1.25));
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -189,7 +187,7 @@ function renderImage(url) {
   canvas.addEventListener("pointercancel", endDrag);
 
   img.addEventListener("load", applyFit);
-  img.addEventListener("error", () => showProblem("This image couldn't be loaded or isn't in a format the browser can show."));
+  img.addEventListener("error", () => showProblem(t("viewer.badImage")));
   img.src = url;
 }
 

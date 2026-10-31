@@ -22,6 +22,7 @@ import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { HttpError } from "./http.js";
 import { fileHeaders, parseRange } from "./ftp.js";
+import { msg } from "../public/js/i18n.js";
 
 const DEFAULTS = {
   ffmpegPath: "ffmpeg",
@@ -142,7 +143,7 @@ function createLimit(max, maxQueue) {
       active++;
     } else {
       if (waiting.length >= maxQueue) {
-        throw new HttpError(503, "The server is busy converting videos; try again in a moment", { "Retry-After": "5" });
+        throw new HttpError(503, msg("err.convertBusy"), { "Retry-After": "5" });
       }
       await new Promise((resolve) => waiting.push(resolve));   // the slot is handed over
     }
@@ -203,8 +204,7 @@ export function createConverter(options = {}) {
     return version;
   }
 
-  const noConverter = () => new HttpError(501,
-    "This video needs converting, but the server has no converter (ffmpeg). Download it to watch it in a video player.");
+  const noConverter = () => new HttpError(501, msg("err.noConverter"));
 
   async function convert(input) {
     if (!(await check())) throw noConverter();
@@ -216,9 +216,9 @@ export function createConverter(options = {}) {
         await writeFile(source, input, { mode: 0o600 });
         const { code, signal } = await o.run(o.ffmpegPath, ffmpegArgs(source, target), o.timeoutMs)
           .catch(() => { throw noConverter(); });   // removed since check()
-        if (signal) throw new HttpError(504, "Converting this video took too long");
+        if (signal) throw new HttpError(504, msg("err.convertSlow"));
         if (code !== 0) {
-          throw new HttpError(415, "This video couldn't be converted: its format isn't supported, or the file is damaged.");
+          throw new HttpError(415, msg("err.convertFailed"));
         }
         return await readFile(target);
       } finally {
@@ -259,7 +259,7 @@ export function createConverter(options = {}) {
 export function sendVideo(req, res, body, name) {
   const range = parseRange(req.headers.range, body.length);
   if (range === "unsatisfiable") {
-    throw new HttpError(416, "Range not satisfiable", { "Content-Range": `bytes */${body.length}` });
+    throw new HttpError(416, msg("err.range"), { "Content-Range": `bytes */${body.length}` });
   }
   const part = range ? body.subarray(range.start, range.end + 1) : body;
   // It is an MP4 now, whatever the original was called.

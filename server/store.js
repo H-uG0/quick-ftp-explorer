@@ -21,6 +21,7 @@ import path from "node:path";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { readJson, writeFileAtomic } from "./files.js";
 import { HttpError } from "./http.js";
+import { msg } from "../public/js/i18n.js";
 
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
 const HOST_RE = /^[A-Za-z0-9][A-Za-z0-9.:-]*$/;
@@ -32,10 +33,10 @@ export function sanitizeId(username) {
 
 function text(value, field, max, { required = false } = {}) {
   const s = String(value ?? "").trim();
-  if (required && !s) throw new HttpError(400, `${field} is required`);
-  if (s.length > max) throw new HttpError(400, `${field} is longer than ${max} characters`);
+  if (required && !s) throw new HttpError(400, msg("err.required", { field }));
+  if (s.length > max) throw new HttpError(400, msg("err.tooLong", { field, max }));
   // CR/LF would let a value smuggle extra commands into the FTP session.
-  if (CONTROL_CHARS.test(s)) throw new HttpError(400, `${field} contains control characters`);
+  if (CONTROL_CHARS.test(s)) throw new HttpError(400, msg("err.controlChars", { field }));
   return s;
 }
 
@@ -44,31 +45,31 @@ function text(value, field, max, { required = false } = {}) {
 // host and port stay the same. Otherwise anyone able to edit a shortcut could
 // point it at their own server and receive the stored password at login.
 export function validateShortcut(input, { allowedHosts = [], existing = null } = {}) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new HttpError(400, "Expected a shortcut object");
-  const username = text(input.username, "Username", 128, { required: true });
-  const host = text(input.host, "Host", 253, { required: true });
-  if (!HOST_RE.test(host)) throw new HttpError(400, "Host must be a hostname or an IP address");
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new HttpError(400, msg("err.expectedShortcut"));
+  const username = text(input.username, msg("field.username"), 128, { required: true });
+  const host = text(input.host, msg("field.host"), 253, { required: true });
+  if (!HOST_RE.test(host)) throw new HttpError(400, msg("err.badHost"));
   if (allowedHosts.length && !allowedHosts.includes(host.toLowerCase())) {
-    throw new HttpError(400, `Host "${host}" is not in FTP_ALLOWED_HOSTS`);
+    throw new HttpError(400, msg("err.hostNotInList", { host }));
   }
   const rawPort = input.port ?? 21;
   const port = Number(rawPort === "" ? 21 : rawPort);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new HttpError(400, "Port must be a whole number between 1 and 65535");
+    throw new HttpError(400, msg("err.badPort"));
   }
-  const label = text(input.label, "Label", 200) || username;
+  const label = text(input.label, msg("field.label"), 200) || username;
 
   // Passwords are taken as typed (no trimming): spaces may be significant.
   let password = String(input.password ?? "");
-  if (password.length > 256) throw new HttpError(400, "Password is longer than 256 characters");
-  if (CONTROL_CHARS.test(password)) throw new HttpError(400, "Password contains control characters");
+  if (password.length > 256) throw new HttpError(400, msg("err.passwordTooLong"));
+  if (CONTROL_CHARS.test(password)) throw new HttpError(400, msg("err.passwordControl"));
   if (!password) {
     if (!existing) {
       password = username;   // the HTA's default: password = username
     } else if (existing.host.toLowerCase() === host.toLowerCase() && existing.port === port) {
       password = existing.password;
     } else {
-      throw new HttpError(400, "Re-enter the FTP password when changing the host or port");
+      throw new HttpError(400, msg("err.reenterPassword"));
     }
   }
   return { label, host, port, username, password };
@@ -131,7 +132,7 @@ export function createShortcutStore(dir, { allowedHosts = [] } = {}) {
     async create(input) {
       const record = validateShortcut(input, { allowedHosts });
       const id = sanitizeId(record.username);
-      if (await get(id)) throw new HttpError(409, `A shortcut for username "${record.username}" already exists`);
+      if (await get(id)) throw new HttpError(409, msg("err.duplicate", { username: record.username }));
       await write(record);
       return id;
     },
@@ -140,11 +141,11 @@ export function createShortcutStore(dir, { allowedHosts = [] } = {}) {
     // old one removed only afterwards, so a failure never loses the shortcut.
     async update(id, input) {
       const existing = await get(id);
-      if (!existing) throw new HttpError(404, "No such shortcut");
+      if (!existing) throw new HttpError(404, msg("err.noShortcut"));
       const record = validateShortcut(input, { allowedHosts, existing });
       const newId = sanitizeId(record.username);
       if (newId !== id && await get(newId)) {
-        throw new HttpError(409, `A shortcut for username "${record.username}" already exists`);
+        throw new HttpError(409, msg("err.duplicate", { username: record.username }));
       }
       await write(record);
       if (newId !== id) await rm(fileFor(id), { force: true });
@@ -152,7 +153,7 @@ export function createShortcutStore(dir, { allowedHosts = [] } = {}) {
     },
 
     async remove(id) {
-      if (!await get(id)) throw new HttpError(404, "No such shortcut");
+      if (!await get(id)) throw new HttpError(404, msg("err.noShortcut"));
       await rm(fileFor(id), { force: true });
     },
   };

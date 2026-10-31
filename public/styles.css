@@ -81,6 +81,14 @@ html, body {
 
 a { color: var(--link); }
 
+/* Pages wait for their translation (i18n.js), so nobody sees them switch
+   language; after a second they show anyway, whatever happened. */
+.i18n-pending body {
+  visibility: hidden;
+  animation: i18n-reveal 0s 1s forwards;
+}
+@keyframes i18n-reveal { to { visibility: visible; } }
+
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -713,6 +721,7 @@ audio.viewer-media {
 .card .brand-mark { width: 36px; height: 36px; }
 .card-body { padding: 22px 24px 24px; }
 .card-body > p:last-child { margin-bottom: 0; }
+.card-footer { margin: 16px 0 0; text-align: center; font-size: var(--fs-sm); }
 
 /* ---- narrow screens (phones): the left pane becomes a drawer ---- */
 

@@ -42,19 +42,19 @@ supprime jamais rien sur les serveurs FTP.
 ## 3. Se connecter et se déconnecter
 
 1. Ouvrez l'adresse dans votre navigateur. Vous arrivez sur la page
-   **Sign in** (connexion).
+   de connexion.
 2. Saisissez votre identifiant (majuscules et minuscules sont
-   équivalentes) et votre mot de passe, puis cliquez sur **Sign in**.
+   équivalentes) et votre mot de passe, puis cliquez sur **Se connecter**.
 
 Messages possibles sur la page de connexion :
 
 | Message | Signification |
 |---|---|
-| *Wrong username or password.* | Identifiant ou mot de passe incorrect : vérifiez les deux et réessayez. |
-| *Too many failed attempts. Wait 15 minutes, then try again.* | Après 10 échecs, le compte (et l'adresse réseau de votre poste) est bloqué 15 minutes, même avec le bon mot de passe. |
-| *Your session has expired. Please sign in again.* | Une session dure 12 heures par défaut ; vous avez été déconnecté automatiquement. |
+| *Identifiant ou mot de passe incorrect.* | Vérifiez les deux et réessayez. |
+| *Trop de tentatives échouées. Patientez 15 minutes, puis réessayez.* | Après 10 échecs, le compte (et l'adresse réseau de votre poste) est bloqué 15 minutes, même avec le bon mot de passe. |
+| *Votre session a expiré. Veuillez vous reconnecter.* | Une session dure 12 heures par défaut ; vous avez été déconnecté automatiquement. |
 
-Pour vous déconnecter, cliquez sur **Sign out** à l'extrémité droite de la
+Pour vous déconnecter, cliquez sur **Se déconnecter** à l'extrémité droite de la
 barre d'état. Fermer l'onglet ne vous déconnecte pas : sur un poste
 partagé, déconnectez-vous toujours.
 
@@ -67,31 +67,33 @@ page de connexion est un formulaire standard.
 
 ```
 +----------------------------------------------------------------------+
-| ▣ Quick FTP Explorer | raccourci › dossier › dossier | ↻ | Search... |  barre du haut
+| ▣ Quick FTP Explorer | raccourci › dossier › dossier | ↻ | Recherche |  barre du haut
 +------------------------+---------------------------------------------+
-| SHORTCUTS      + New   | Name              Type   Size   Modified    |
-| ▾ main-nvr Bureau      | Images            Folder        Apr 01 2026 |
-|   ▸ Images             | clip 08h00.mp4    MP4    12 MB  Apr 01 2026 |
-|   ▸ Videos             | capture.jpg       JPG    98 KB  Apr 01 2026 |
+| RACCOURCIS  + Nouveau  | Nom               Type   Taille Modifié le  |
+| ▾ main-nvr Bureau      | Images            Dossier       1 avr. 2026 |
+|   ▸ Images             | clip 08h00.mp4    MP4    12 Mo  1 avr. 2026 |
+|   ▸ Videos             | capture.jpg       JPG    98 Ko  1 avr. 2026 |
 | ▸ back-office          |                                             |
 +------------------------+---------------------------------------------+
-| 2 shortcuts                       Signed in as alice   Sign out      |  barre d'état
+| 2 raccourcis   Connecté en tant que alice   English   Se déconnecter |  barre d'état
 +----------------------------------------------------------------------+
 ```
 
-L'interface est en anglais ; ce manuel donne entre parenthèses le sens des
-libellés.
+L'interface suit la langue de votre navigateur : français, ou anglais.
+Pour en changer, cliquez sur **English** dans la barre d'état ou sur la
+page de connexion ; le choix est retenu sur ce navigateur. Ce manuel cite
+les libellés français.
 
 ### 4.1 Barre du haut
 
 - **Fil d'Ariane** &mdash; où vous êtes : le raccourci, puis chaque
   dossier. Cliquez sur n'importe quel élément sauf le dernier pour y
   remonter.
-- **↻ Refresh** (actualiser) &mdash; recharge le dossier courant depuis le
+- **↻** (actualiser ce dossier) &mdash; recharge le dossier courant depuis le
   serveur. Le contenu des dossiers est mémorisé tant que la page reste
   ouverte : utilisez ce bouton pour voir les fichiers apparus depuis (de
   nouveaux enregistrements, par exemple).
-- **Search** (recherche) &mdash; voir le [§7](#7-recherche).
+- **Recherche** &mdash; voir le [§7](#7-recherche).
 
 ### 4.2 Panneau de gauche &mdash; raccourcis et dossiers
 
@@ -112,8 +114,8 @@ redimensionner. Le navigateur retient la largeur.
 
 ### 4.3 Panneau de droite &mdash; fichiers
 
-Un tableau du dossier courant : **Name** (nom), **Type**, **Size**
-(taille), **Modified** (modifié le). Les dossiers d'abord, puis les
+Un tableau du dossier courant : **Nom**, **Type**, **Taille** et
+**Modifié le**. Les dossiers d'abord, puis les
 fichiers, dans l'ordre naturel (`clip 2` avant `clip 10`).
 
 - **Cliquez sur un dossier** pour y entrer.
@@ -121,12 +123,12 @@ fichiers, dans l'ordre naturel (`clip 2` avant `clip 10`).
 - Au clavier : `Tab` passe d'une ligne à l'autre, `Entrée` ouvre.
 
 Si un dossier ne peut pas être listé, la raison s'affiche avec un bouton
-**Retry** (réessayer).
+**Réessayer**.
 
 ### 4.4 Barre d'état
 
 Le nombre de raccourcis, le compte connecté (et s'il est administrateur),
-et **Sign out**.
+**English** pour passer l'interface en anglais, et **Se déconnecter**.
 
 ---
 
@@ -141,7 +143,7 @@ et **Sign out**.
 Chaque dossier est chargé une fois puis mémorisé jusqu'au rechargement de
 la page ou à un clic sur **↻** : revenir en arrière est donc instantané.
 La première fois, le serveur se connecte au serveur FTP pour vous ; avec
-un serveur lent, un petit indicateur *Loading folder…* apparaît en bas à
+un serveur lent, un petit indicateur *Chargement du dossier…* apparaît en bas à
 droite.
 
 ### 5.1 Liens, favoris et bouton Précédent
@@ -165,8 +167,8 @@ Sur les écrans étroits, le panneau des raccourcis glisse depuis la gauche :
 touchez **☰** dans la barre du haut pour l'afficher, puis touchez un
 raccourci ou un dossier ; le panneau se referme de lui-même et les fichiers
 occupent l'écran. Touchez de nouveau **☰** (ou en dehors du panneau) pour
-revenir. Pour que le tableau reste lisible, seules les colonnes **Name**
-(nom) et **Size** (taille) sont affichées.
+revenir. Pour que le tableau reste lisible, seules les colonnes **Nom**
+et **Taille** sont affichées.
 
 ---
 
@@ -191,14 +193,14 @@ que la relire ou s'y déplacer soit rapide.
 
 Un fond sombre recouvre la fenêtre.
 
-- **Fit** (ajuster) &mdash; l'image entière tient dans la fenêtre (par
+- **Ajuster** &mdash; l'image entière tient dans la fenêtre (par
   défaut).
 - **100%** &mdash; taille réelle.
 - **− / +** &mdash; zoom arrière / avant. La **molette** zoome aussi.
 - **Faites glisser** l'image pour vous déplacer lorsqu'elle dépasse de la
   fenêtre.
-- **Download** (télécharger) &mdash; enregistre le fichier.
-- **Close (Esc)** (fermer) &mdash; ou la touche `Échap`, ou un clic en
+- **Télécharger** &mdash; enregistre le fichier.
+- **Fermer (Échap)** &mdash; ou la touche `Échap`, ou un clic en
   dehors de l'image.
 
 ### 6.2 Vidéo et audio
@@ -210,14 +212,14 @@ d'abord.
 
 Beaucoup de caméras enregistrent dans des formats que les navigateurs ne
 savent pas lire, comme le XviD (MPEG-4) dans des fichiers `.avi`. Quick
-FTP Explorer les convertit sur le serveur à l'ouverture : *Loading…*
-(chargement) ou *Converting the video for this browser…* (conversion pour
-ce navigateur) s'affiche un instant, puis la vidéo se lit comme les autres.
+FTP Explorer les convertit sur le serveur à l'ouverture : *Chargement…*
+ou *Conversion de la vidéo pour ce navigateur…* s'affiche un instant,
+puis la vidéo se lit comme les autres.
 
 Quelques vidéos restent illisibles dans le navigateur : un fichier
 endommagé, ou une vidéo plus grosse que la limite de conversion du serveur
 (50 Mo, sauf réglage contraire de votre administrateur). La visionneuse en
-donne la raison et propose **Download it instead** (le télécharger) ;
+donne la raison et propose **Le télécharger** ;
 ouvrez le fichier téléchargé avec votre lecteur habituel (VLC, le lecteur
 du fabricant de l'enregistreur…).
 
@@ -243,15 +245,15 @@ Tapez dans le champ de recherche de la barre du haut pour trouver des
 **fichiers et des dossiers** par leur nom :
 
 - Si un dossier est ouvert, la recherche porte sur ce dossier **et tous
-  ses sous-dossiers**. Le champ indique où, par exemple *Search Images*
-  (rechercher dans Images).
+  ses sous-dossiers**. Le champ indique où, par exemple *Rechercher dans
+  Images*.
 - Si rien n'est ouvert, elle porte sur **tous les sites**, et les sites
   correspondants apparaissent en premier.
 
 Les résultats s'affichent à droite au fil de la frappe. Sous chaque nom
 figure le dossier où il se trouve, et la partie trouvée est surlignée.
 Cliquez sur un fichier pour l'ouvrir, ou sur un dossier ou un site pour y
-aller. **Search all sites** (rechercher partout) étend la recherche à tous
+aller. **Rechercher dans tous les sites** étend la recherche à tous
 les sites.
 
 - Les majuscules et les accents n'ont pas d'importance : `ete` trouve
@@ -269,31 +271,30 @@ profond, ouvrez d'abord un sous-dossier.
 
 ## 8. Gérer les raccourcis (administrateurs)
 
-Seuls les comptes au rôle **admin** voient le bouton **+ New** et le menu
+Seuls les comptes au rôle **admin** voient le bouton **+ Nouveau** et le menu
 du clic droit dans le panneau de gauche. Les raccourcis sont partagés :
 chaque modification est visible par tous (après rechargement de la liste,
 par exemple en rechargeant la page).
 
 ### 8.1 Créer un raccourci
 
-Cliquez sur **+ New** (ou clic droit dans le panneau de gauche →
-**New shortcut…**).
+Cliquez sur **+ Nouveau** (ou clic droit dans le panneau de gauche →
+**Nouveau raccourci…**).
 
 | Champ | Remarques |
 |---|---|
-| **Username** (identifiant) | Le compte FTP. Obligatoire. Il identifie aussi le raccourci : deux raccourcis ne peuvent pas avoir le même identifiant. |
-| **Custom label text** (texte du libellé) | Facultatif. Le libellé affiché dans l'arborescence est l'identifiant suivi de ce texte, par exemple `main-nvr Bureau principal`. L'aperçu sous le formulaire montre le résultat. |
-| **Host** et **Port** (hôte et port) | Le serveur FTP. Pré-remplis avec les valeurs par défaut de votre organisation. |
-| **Password** (mot de passe) | Par défaut, l'identifiant ; il le suit pendant la saisie tant que vous n'avez pas tapé votre propre mot de passe. |
+| **Identifiant** | Le compte FTP. Obligatoire. Il identifie aussi le raccourci : deux raccourcis ne peuvent pas avoir le même identifiant. |
+| **Texte du libellé** | Facultatif. Le libellé affiché dans l'arborescence est l'identifiant suivi de ce texte, par exemple `main-nvr Bureau principal`. L'aperçu sous le formulaire montre le résultat. |
+| **Hôte** et **Port** | Le serveur FTP. Pré-remplis avec les valeurs par défaut de votre organisation. |
+| **Mot de passe** | Par défaut, l'identifiant ; il le suit pendant la saisie tant que vous n'avez pas tapé votre propre mot de passe. |
 
-Cliquez sur **Save** (enregistrer). Les problèmes s'affichent en haut du
-formulaire, par exemple *A shortcut for username "…" already exists* (ce
-raccourci existe déjà) ou *Username contains control characters*
-(caractères interdits).
+Cliquez sur **Enregistrer**. Les problèmes s'affichent en haut du
+formulaire, par exemple *Un raccourci existe déjà pour l'identifiant « … »*
+ou *Le champ « Identifiant » contient des caractères de contrôle*.
 
 ### 8.2 Modifier un raccourci
 
-Clic droit sur le raccourci → **Edit shortcut…**.
+Clic droit sur le raccourci → **Modifier le raccourci…**.
 
 - Le champ mot de passe est **vide** : les mots de passe enregistrés ne
   sont jamais envoyés aux navigateurs. Laissez-le vide pour conserver le
@@ -306,7 +307,7 @@ Clic droit sur le raccourci → **Edit shortcut…**.
 
 ### 8.3 Supprimer un raccourci
 
-Clic droit sur le raccourci → **Delete shortcut**, puis confirmez. Tout le
+Clic droit sur le raccourci → **Supprimer le raccourci**, puis confirmez. Tout le
 monde en perd l'accès immédiatement.
 
 ---
@@ -326,13 +327,13 @@ monde en perd l'accès immédiatement.
 
 | Message ou symptôme | Que faire |
 |---|---|
-| *FTP login failed: 530 …* | L'identifiant ou le mot de passe FTP du raccourci est faux, ou le compte a changé sur le serveur FTP. Prévenez un administrateur. |
-| *… (not retried for 5 min; an admin should check this shortcut)* | Après un échec de connexion FTP, le raccourci est mis en pause 5 minutes pour que des tentatives répétées ne fassent pas bloquer le serveur. Il reprend tout seul, ou immédiatement dès qu'un administrateur enregistre le raccourci. |
-| *Not found, or no permission* | Le dossier ou le fichier a été déplacé ou supprimé, ou le compte FTP n'a pas le droit de le lire. Cliquez sur **↻** dans le dossier parent. |
-| *The FTP server is busy …* | Trop de personnes utilisent ce serveur en même temps. Patientez quelques secondes et réessayez. |
-| *Can't reach the FTP server* / *did not answer in time* / *took too long* | Le serveur FTP est arrêté, injoignable ou très lent. Réessayez plus tard ; prévenez un administrateur si cela persiste. |
-| *The server can't be reached* | Votre propre connexion à Quick FTP Explorer est coupée. Vérifiez votre réseau. |
-| Une vidéo affiche *can't be played in this browser* | Voir le [§6.2](#62-vidéo-et-audio) : téléchargez-la et utilisez un autre lecteur. |
+| *Échec de la connexion au serveur FTP : 530 …* | L'identifiant ou le mot de passe FTP du raccourci est faux, ou le compte a changé sur le serveur FTP. Prévenez un administrateur. |
+| *… (pas de nouvel essai pendant 5 min ; un administrateur doit vérifier ce raccourci)* | Après un échec de connexion FTP, le raccourci est mis en pause 5 minutes pour que des tentatives répétées ne fassent pas bloquer le serveur. Il reprend tout seul, ou immédiatement dès qu'un administrateur enregistre le raccourci. |
+| *Introuvable, ou accès refusé* | Le dossier ou le fichier a été déplacé ou supprimé, ou le compte FTP n'a pas le droit de le lire. Cliquez sur **↻** dans le dossier parent. |
+| *Le serveur FTP est occupé …* | Trop de personnes utilisent ce serveur en même temps. Patientez quelques secondes et réessayez. |
+| *Impossible de joindre le serveur FTP* / *n'a pas répondu à temps* / *a mis trop de temps* | Le serveur FTP est arrêté, injoignable ou très lent. Réessayez plus tard ; prévenez un administrateur si cela persiste. |
+| *Le serveur est injoignable* | Votre propre connexion à Quick FTP Explorer est coupée. Vérifiez votre réseau. |
+| Une vidéo affiche *ne peut pas être lu dans ce navigateur* | Voir le [§6.2](#62-vidéo-et-audio) : téléchargez-la et utilisez un autre lecteur. |
 | Un téléchargement échoue dans la liste des téléchargements | En général, l'un des problèmes FTP ci-dessus : réessayez, ou rouvrez le dossier du fichier pour vérifier qu'il existe toujours. |
 | Un clic sur un PDF ne fait rien | Autorisez les fenêtres pop-up pour le site ([§6.4](#64-si-longlet-du-pdf-ne-souvre-pas)). |
 | Vous revenez à la page de connexion | Votre session a expiré ou votre compte a été modifié. Reconnectez-vous. |

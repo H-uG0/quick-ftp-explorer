@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  joinPath, formatSize, sortEntries, splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchName,
+  joinPath, sortEntries, splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchName,
 } from "../public/js/util.js";
 
 test("joinPath", () => {
@@ -13,15 +13,6 @@ test("joinPath", () => {
   assert.equal(joinPath("", "Images"), "/Images");
   assert.equal(joinPath("/Images", "2026"), "/Images/2026");
   assert.equal(joinPath("/Images/", "2026"), "/Images/2026");
-});
-
-test("formatSize", () => {
-  assert.equal(formatSize(0), "0 B");
-  assert.equal(formatSize(1023), "1023 B");
-  assert.equal(formatSize(1536), "1.5 KB");
-  assert.equal(formatSize(5 * 1024 ** 2), "5.0 MB");
-  assert.equal(formatSize(3 * 1024 ** 3), "3.00 GB");
-  assert.equal(formatSize(undefined), "0 B");
 });
 
 test("sortEntries: folders first, then natural, case-insensitive order", () => {

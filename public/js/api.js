@@ -15,6 +15,8 @@
  * session is over: the page goes back to the sign-in screen.
  */
 
+import { t } from "./i18n.js";
+
 export class ApiError extends Error {
   constructor(status, message) {
     super(message);
@@ -32,16 +34,16 @@ async function call(method, url, body) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, "The server can't be reached. Check your connection and try again.");
+    throw new ApiError(0, t("api.unreachable"));
   }
   if (res.status === 401) {
     // Keep the fragment: after signing in again, the same folder reopens.
     location.assign("/login?error=expired" + location.hash);
-    throw new ApiError(401, "Your session has expired.");
+    throw new ApiError(401, t("auth.error.expired"));
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data.error || t("api.failed", { status: String(res.status) }));
   return data;
 }
 

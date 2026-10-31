@@ -73,9 +73,13 @@ standard form.
 |   ▸ Videos             | snapshot.jpg      JPG    98 KB  Apr 01 2026 |
 | ▸ back-office          |                                             |
 +------------------------+---------------------------------------------+
-| 2 shortcuts                       Signed in as alice   Sign out      |  status bar
+| 2 shortcuts                 Signed in as alice   Français   Sign out |  status bar
 +----------------------------------------------------------------------+
 ```
+
+The interface follows your browser's language: French, or English. To
+change it, click **Français** in the status bar or on the sign-in page;
+that browser remembers the choice.
 
 ### 4.1 Top bar
 
@@ -116,7 +120,8 @@ If a folder can't be listed, the reason appears with a **Retry** button.
 ### 4.4 Status bar
 
 The number of shortcuts, who is signed in (and whether you are an
-administrator), and **Sign out**.
+administrator), **Français** to switch the interface to French, and
+**Sign out**.
 
 ---
 

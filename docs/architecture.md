@@ -407,6 +407,7 @@ regexes, `onmousewheel`, simulated clicks).
 | `js/app.js` | Wiring: selection, breadcrumb, search, opening files, splitter, shortcut management | `app.js` |
 | `js/util.js` | Pure helpers (paths, sizes, natural sort, labels, search matching), unit-tested | (inline in `ui.js` / `app.js`) |
 | `js/search.js` | The folder walk behind the search box, unit-tested | (none: the HTA filtered one folder) |
+| `js/i18n.js` | Every text in English and French, shared with the server; the language; French sizes and dates | (none: English only) |
 | `js/filetypes.js` | File kinds and inline types, shared with the server | `kindFor` in `ui.js` |
 | `js/icons.js` | The tree's and table's line icons, built as DOM nodes | emoji in `ui.js` |
 | `styles.css` | The File-Explorer layout in the Dessaud Alarme Service colours, as OKLCH custom properties | `styles.css` |
@@ -484,6 +485,22 @@ request returns the JSON error) and shows that, with a download link.
 forms show server errors inline (400/409) instead of `alert()`. Edit leaves
 the password empty, because the stored one never reaches the browser.
 
+**English and French.** `i18n.js` holds every text in both languages, as
+one table that the server imports too (like `filetypes.js`), with plural
+forms chosen by `Intl.PluralRules` and numbers by `toLocaleString`
+("12 345 résultats"). The language is the `qfe_lang` cookie, set by the
+switch in the status bar and on the sign-in page, else the best match of
+the browser's preferences (`Accept-Language`, `navigator.languages`),
+else English. Pages carry `data-i18n` / `data-i18n-attr` keys and start
+hidden (`i18n-pending`) until `translatePage()` has run, with a one-second
+CSS fallback so a broken script can never leave a blank page. Sizes read
+"1,5 Ko" and the listing's Unix dates ("Apr 01 2026") "1 avr. 2026" in
+French. On the server, `HttpError` takes `msg(key, params)`: logs and
+tests see English, and `fail()` answers in the reader's language, the
+error page included; parameters can be messages themselves (a field name
+inside "{field} is required"), and FTP replies stay as the server sent
+them.
+
 **Look and accessibility.** The palette comes from the Dessaud Alarme
 Service logo: an ink navy carries the frame (top bar, sign-in header,
 primary buttons), and the signal red is kept for the logo and for errors.
@@ -551,6 +568,10 @@ dependencies:
 - `tests/filetypes.test.js`: nothing that can carry script is ever inline.
 - `tests/util.test.js`: the UI's pure helpers (natural sort, labels, sizes,
   paths, folder links, search matching with accents and several words).
+- `tests/i18n.test.js`: both languages have every text with the same
+  slots, every key the code and pages use exists, plurals and number
+  formats, the language choice, sizes and dates, and the server's errors
+  in French (cookie, `Accept-Language`, field names, the error page).
 - `tests/search.test.js`: the search's folder walk against a fake listing:
   every depth, links not followed, the folder, depth and concurrency
   limits, unreadable folders, cancellation.

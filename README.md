@@ -16,6 +16,9 @@ signs in and browses, from any device, with nothing to install.
 - **File-Explorer-style browsing.** Shortcut and folder tree on the left,
   name / type / size / modified table on the right, breadcrumb, refresh,
   resizable panes.
+- **In French and in English.** The interface follows the browser's
+  language, with a switch to change it; error messages, dates and sizes
+  too.
 - **Search that finds things.** Files and folders by name, in the open
   folder and all its subfolders or in every site, ignoring case and
   accents; results show where each one is.

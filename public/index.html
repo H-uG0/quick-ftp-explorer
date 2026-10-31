@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="i18n-pending">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,60 +10,61 @@
 <body>
   <div id="app">
     <header class="topbar">
-      <button type="button" id="menu-toggle" class="btn-secondary btn-icon menu-toggle" aria-label="Shortcuts" aria-controls="left-pane" aria-expanded="false">
+      <button type="button" id="menu-toggle" class="btn-secondary btn-icon menu-toggle" aria-label="Shortcuts" data-i18n-attr="aria-label: nav.shortcuts" aria-controls="left-pane" aria-expanded="false">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
       </button>
       <div class="brand">
         <img class="brand-mark" src="/logo.svg" alt="" width="26" height="26" />
         <span class="brand-name">Quick FTP Explorer</span>
       </div>
-      <nav id="breadcrumb" class="breadcrumb" aria-label="Current folder">
-        <span class="bc-segment muted">Select a shortcut</span>
+      <nav id="breadcrumb" class="breadcrumb" aria-label="Current folder" data-i18n-attr="aria-label: nav.current">
+        <span class="bc-segment muted" data-i18n="nav.pick">Select a shortcut</span>
       </nav>
-      <button type="button" id="refresh" class="btn-secondary btn-icon" title="Refresh this folder" aria-label="Refresh this folder" disabled>
+      <button type="button" id="refresh" class="btn-secondary btn-icon" title="Refresh this folder" aria-label="Refresh this folder" data-i18n-attr="title: nav.refresh; aria-label: nav.refresh" disabled>
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 8a5.25 5.25 0 1 1-1.54-3.71"/><path d="M13.25 2.5v3h-3"/></svg>
       </button>
       <div class="search">
-        <input type="search" id="search" placeholder="Search all sites" autocomplete="off" aria-label="Search files and folders" />
+        <input type="search" id="search" placeholder="Search all sites" autocomplete="off" aria-label="Search files and folders" data-i18n-attr="placeholder: search.allSites; aria-label: search.label" />
       </div>
     </header>
 
     <div class="panels">
       <aside id="left-pane" class="pane pane-left">
         <div class="pane-header">
-          <span class="pane-title">Shortcuts</span>
-          <button type="button" id="new-shortcut" class="btn-secondary btn-sm" hidden>+ New</button>
+          <span class="pane-title" data-i18n="nav.shortcuts">Shortcuts</span>
+          <button type="button" id="new-shortcut" class="btn-secondary btn-sm" data-i18n="sc.newButton" hidden>+ New</button>
         </div>
         <ul id="shortcut-list" class="shortcut-list"></ul>
         <p id="empty-hint" class="muted empty-hint" hidden></p>
       </aside>
 
-      <div id="splitter" class="splitter" title="Drag to resize"></div>
+      <div id="splitter" class="splitter" title="Drag to resize" data-i18n-attr="title: nav.resize"></div>
 
       <section id="right-pane" class="pane pane-right">
         <div id="file-list" class="file-list">
-          <p class="placeholder muted">Loading&hellip;</p>
+          <p class="placeholder muted" data-i18n="common.loading">Loading&hellip;</p>
         </div>
       </section>
     </div>
 
     <div id="spinner" class="spinner" aria-live="polite" hidden>
       <span class="spinner-ring"></span>
-      <span class="spinner-text">Loading&hellip;</span>
+      <span class="spinner-text" data-i18n="common.loading">Loading&hellip;</span>
     </div>
 
     <footer class="statusbar">
       <span id="status-info" class="muted"></span>
       <span id="status-user" class="muted"></span>
+      <button type="button" id="lang-switch" class="link-button"></button>
       <form method="post" action="/logout">
-        <button type="submit" class="link-button">Sign out</button>
+        <button type="submit" class="link-button" data-i18n="auth.signOut">Sign out</button>
       </form>
     </footer>
 
     <div id="ctx-menu" class="ctx-menu" role="menu" hidden>
-      <div class="ctx-item" data-action="new" role="menuitem">New shortcut&hellip;</div>
-      <div class="ctx-item" data-action="edit" role="menuitem">Edit shortcut&hellip;</div>
-      <div class="ctx-item ctx-item-delete" data-action="delete" role="menuitem">Delete shortcut</div>
+      <div class="ctx-item" data-action="new" role="menuitem" data-i18n="sc.menuNew">New shortcut&hellip;</div>
+      <div class="ctx-item" data-action="edit" role="menuitem" data-i18n="sc.menuEdit">Edit shortcut&hellip;</div>
+      <div class="ctx-item ctx-item-delete" data-action="delete" role="menuitem" data-i18n="sc.menuDelete">Delete shortcut</div>
     </div>
 
     <div id="sc-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="sc-modal-title" hidden>
@@ -72,34 +73,34 @@
         <form id="sc-form">
           <p id="sc-error" class="form-error" role="alert" hidden></p>
           <div class="field">
-            <label for="f-username">Username</label>
+            <label for="f-username" data-i18n="sc.username">Username</label>
             <input id="f-username" name="username" type="text" required autocomplete="off" />
           </div>
           <div class="field">
-            <label for="f-custom">Custom label text <span class="muted">(optional)</span></label>
-            <input id="f-custom" name="customText" type="text" autocomplete="off" placeholder="e.g. Main office NVR" />
+            <label for="f-custom"><span data-i18n="sc.custom">Custom label text</span> <span class="muted" data-i18n="common.optional">(optional)</span></label>
+            <input id="f-custom" name="customText" type="text" autocomplete="off" placeholder="e.g. Main office NVR" data-i18n-attr="placeholder: sc.customExample" />
           </div>
           <div class="field-row">
             <div class="field">
-              <label for="f-host">Host</label>
+              <label for="f-host" data-i18n="sc.host">Host</label>
               <input id="f-host" name="host" type="text" required autocomplete="off" />
             </div>
             <div class="field field-port">
-              <label for="f-port">Port</label>
+              <label for="f-port" data-i18n="sc.port">Port</label>
               <input id="f-port" name="port" type="number" min="1" max="65535" required />
             </div>
           </div>
           <div class="field">
-            <label for="f-password">Password</label>
+            <label for="f-password" data-i18n="sc.password">Password</label>
             <input id="f-password" name="password" type="text" autocomplete="off" />
             <p id="f-password-hint" class="field-hint muted"></p>
           </div>
           <div class="field muted preview">
-            Label preview: <span id="f-preview"></span>
+            <span data-i18n="sc.preview">Label preview:</span> <span id="f-preview"></span>
           </div>
           <div class="modal-actions">
-            <button type="button" id="sc-cancel" class="btn-secondary">Cancel</button>
-            <button type="submit" id="sc-save">Save</button>
+            <button type="button" id="sc-cancel" class="btn-secondary" data-i18n="common.cancel">Cancel</button>
+            <button type="submit" id="sc-save" data-i18n="common.save">Save</button>
           </div>
         </form>
       </div>

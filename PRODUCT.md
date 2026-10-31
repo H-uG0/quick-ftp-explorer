@@ -13,8 +13,8 @@ the camera clips and snapshots that client sites upload to a central FTP
 server, to check an alarm, confirm an intrusion or verify an installation.
 
 They work at office desks and on phones in the field, in daylight and
-sometimes in a hurry. Some are older and not tech-minded. Most speak French;
-the interface is in English for now.
+sometimes in a hurry. Some are older and not tech-minded. Most speak French:
+the interface follows the browser's language, French or English.
 
 ## Product Purpose
 

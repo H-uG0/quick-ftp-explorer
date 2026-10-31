@@ -20,7 +20,8 @@
 
 import * as api from "./api.js";
 import { kindFor, extension } from "./filetypes.js";
-import { joinPath, formatSize, sortEntries } from "./util.js";
+import { joinPath, sortEntries } from "./util.js";
+import { t, tn, language, formatSize, formatDate } from "./i18n.js";
 import { icon } from "./icons.js";
 
 const OPEN = "▾", CLOSED = "▸", LOADING = "◌";   // ▾ ▸ ◌
@@ -117,7 +118,7 @@ function populate(sc, path, key, toggle, children) {
     renderFolders(sc, path, item.entries, children);
     return;
   }
-  children.replaceChildren(el("li", "tree-message muted", "Loading…"));
+  children.replaceChildren(el("li", "tree-message muted", t("common.loading")));
   toggle.textContent = LOADING;
   const settle = () => { toggle.textContent = state.expanded.has(key) ? OPEN : CLOSED; };
   listing(sc, path).then(
@@ -129,7 +130,7 @@ function populate(sc, path, key, toggle, children) {
 function renderFolders(sc, parentPath, entries, children) {
   const folders = sortEntries(entries.filter((e) => e.isDir));
   if (folders.length === 0) {
-    children.replaceChildren(el("li", "tree-message muted", "(no subfolders)"));
+    children.replaceChildren(el("li", "tree-message muted", t("tree.noSubfolders")));
     return;
   }
   children.replaceChildren(...folders.map((f) => buildNode(sc, joinPath(parentPath, f.name), f.name, false)));
@@ -200,17 +201,17 @@ export const tree = {
 
 /* ---------------------------------------------------------------- files */
 
-const COLUMNS = [["col-name", "Name"], ["col-type", "Type"], ["col-size", "Size"], ["col-date", "Modified"]];
+const COLUMNS = [["col-name", "col.name"], ["col-type", "col.type"], ["col-size", "col.size"], ["col-date", "col.modified"]];
 
 function fileTable() {
   const table = el("table", "file-table");
   const head = table.createTHead().insertRow();
-  for (const [className, text] of COLUMNS) head.append(el("th", className, text));
+  for (const [className, key] of COLUMNS) head.append(el("th", className, t(key)));
   return { table, body: table.createTBody() };
 }
 
-const typeOf = (entry) => (entry.isDir ? "Folder" : (extension(entry.name).toUpperCase() || "File"));
-const sizeOf = (entry) => (entry.isDir ? "" : formatSize(entry.size));
+const typeOf = (entry) => (entry.isDir ? t("type.folder") : (extension(entry.name).toUpperCase() || t("type.file")));
+const sizeOf = (entry) => (entry.isDir ? "" : formatSize(entry.size, language()));
 
 // One row: icon, name (and `below` it, where a search result lives), type,
 // size, date. One click (or Enter) activates it.
@@ -225,7 +226,7 @@ function addRow(body, { kind, name, title, below, type, size, date }, activate) 
   iconEl.append(icon(kind));
   cell.append(iconEl, name);
   if (below) cell.append(below);
-  row.append(el("td", "col-type muted", type), el("td", "col-size muted", size), el("td", "col-date muted", date ?? ""));
+  row.append(el("td", "col-type muted", type), el("td", "col-size muted", size), el("td", "col-date muted", formatDate(date, language())));
   const run = () => {
     body.querySelector("tr.selected")?.classList.remove("selected");
     row.classList.add("selected");
@@ -241,17 +242,17 @@ function addRow(body, { kind, name, title, below, type, size, date }, activate) 
 // callbacks = { onNavigate(path), onOpen(entry, path), onRetry() }
 function renderFiles(container, view, callbacks) {
   const message = (text, className = "placeholder muted") => container.replaceChildren(el("p", className, text));
-  if (!view) return message("Select a shortcut to browse its files, or search them all from the top bar.");
+  if (!view) return message(t("files.pick"));
   if (view.error) {
     const p = el("p", "placeholder placeholder-error", view.error.message + " ");
-    const retry = el("button", "btn-secondary btn-sm", "Retry");
+    const retry = el("button", "btn-secondary btn-sm", t("common.retry"));
     retry.type = "button";
     retry.addEventListener("click", callbacks.onRetry);
     p.append(retry);
     return container.replaceChildren(p);
   }
-  if (!view.entries) return message("Loading…");
-  if (view.entries.length === 0) return message("(empty folder)");
+  if (!view.entries) return message(t("common.loading"));
+  if (view.entries.length === 0) return message(t("files.empty"));
 
   const { table, body } = fileTable();
   for (const entry of sortEntries(view.entries)) {
@@ -278,28 +279,26 @@ function highlighted(text, ranges) {
   return span;
 }
 
-const plural = (n, one, many = one + "s") => `${n.toLocaleString()} ${n === 1 ? one : many}`;
-
 // view = { query, scope (a label), sites: [{ sc, ranges }], hits: [{ item, ranges }],
-//          total (hits before the display cap), progress (see search.js) }
+//          total (hits before the display cap), progress (see search.js), maxFolders }
 // callbacks = { onOpenSite(sc), onOpenItem(item), onSearchAll (or null) }
 function renderResults(container, view, callbacks) {
   const { query, scope, sites, hits, total, progress } = view;
-  const count = sites.length + total;
+  const results = tn("count.results", sites.length + total);
   const header = el("div", "search-header");
   const status = el("p", "search-status");
   status.setAttribute("aria-live", "polite");
-  status.textContent = progress.done
-    ? (count ? `${plural(count, "result")} for "${query}" in ${scope}.` : `Nothing matches "${query}" in ${scope}.`)
-    : `Searching ${scope}… ${plural(progress.listed, "folder")} read, ${plural(count, "result")} so far.`;
+  status.textContent = !progress.done
+    ? t("search.running", { scope, folders: tn("count.foldersRead", progress.listed), results })
+    : t(sites.length + total ? "search.done" : "search.none", { query, scope, results });
   header.append(status);
   const notes = [];
-  if (total > hits.length) notes.push(`Showing the first ${hits.length.toLocaleString()}: add words to narrow the search.`);
-  if (progress.truncated) notes.push("The search stopped after 300 folders: open a subfolder to search it fully.");
-  if (progress.failed) notes.push(`${plural(progress.failed, "folder")} couldn't be read.`);
+  if (total > hits.length) notes.push(t("search.capped", { n: hits.length }));
+  if (progress.truncated) notes.push(t("search.truncated", { max: view.maxFolders }));
+  if (progress.failed) notes.push(tn("search.failed", progress.failed));
   for (const note of notes) header.append(el("p", "search-note", note));
   if (callbacks.onSearchAll) {
-    const all = el("button", "btn-secondary btn-sm", "Search all sites");
+    const all = el("button", "btn-secondary btn-sm", t("search.allSites"));
     all.type = "button";
     all.addEventListener("click", callbacks.onSearchAll);
     header.append(all);
@@ -308,7 +307,7 @@ function renderResults(container, view, callbacks) {
 
   const { table, body } = fileTable();
   for (const { sc, ranges } of sites) {
-    addRow(body, { kind: "site", name: highlighted(sc.label, ranges), title: sc.label, type: "Site", size: "" },
+    addRow(body, { kind: "site", name: highlighted(sc.label, ranges), title: sc.label, type: t("type.site"), size: "" },
       () => callbacks.onOpenSite(sc));
   }
   for (const { item, ranges } of hits) {

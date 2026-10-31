@@ -29,6 +29,7 @@ import { createGateway, parseRemotePath } from "./ftp.js";
 import { createConverter, sendVideo } from "./video.js";
 import { createAudit } from "./audit.js";
 import { HttpError } from "./http.js";
+import { msg } from "../public/js/i18n.js";
 
 const PUBLIC_DIR = fileURLToPath(new URL("../public/", import.meta.url));
 const COOKIE = "qfe_session";
@@ -152,7 +153,7 @@ export async function createApp(cfg, { log, ftp, video } = {}) {
 
   async function requireShortcut(id) {
     const sc = await shortcuts.get(id);
-    if (!sc) throw new HttpError(404, "No such shortcut");
+    if (!sc) throw new HttpError(404, msg("err.noShortcut"));
     return sc;
   }
 
@@ -186,7 +187,7 @@ export async function createApp(cfg, { log, ftp, video } = {}) {
     const sc = await requireShortcut(ctx.params.id);
     const rawPath = ctx.url.searchParams.get("path") || "";
     const segments = parseRemotePath(rawPath);
-    if (!segments.length) throw new HttpError(400, "Not a file path");
+    if (!segments.length) throw new HttpError(400, msg("err.notAFile"));
     const normalized = "/" + segments.join("/");
     auditOpen(ctx, "play", sc, normalized);
     // The server and login are part of the key, so after an admin edits the

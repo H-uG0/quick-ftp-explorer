@@ -3,7 +3,6 @@
  * the test suite can import them.
  *
  *   joinPath(parent, name)          "/a" + "b" -> "/a/b"
- *   formatSize(bytes)               "12.3 MB"
  *   compareEntries(a, b)            folders first, then natural, case-insensitive order
  *   sortEntries(entries)            a sorted copy
  *   fold(text)                      { text, from }: lower case, no accents, mapped back
@@ -22,14 +21,6 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 export function joinPath(parent, name) {
   if (!parent || parent === "/") return "/" + name;
   return parent.replace(/\/+$/, "") + "/" + name;
-}
-
-export function formatSize(bytes) {
-  const n = Number(bytes) || 0;
-  if (n < 1024) return n + " B";
-  if (n < 1024 ** 2) return (n / 1024).toFixed(1) + " KB";
-  if (n < 1024 ** 3) return (n / 1024 ** 2).toFixed(1) + " MB";
-  return (n / 1024 ** 3).toFixed(2) + " GB";
 }
 
 export function compareEntries(a, b) {

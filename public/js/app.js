@@ -18,7 +18,8 @@ import * as api from "./api.js";
 import { tree, files, el } from "./ui.js";
 import { viewer } from "./viewer.js";
 import { kindFor, inlineType } from "./filetypes.js";
-import { scan } from "./search.js";
+import { scan, LIMITS } from "./search.js";
+import { useLanguage, browserLanguage, translatePage, switchLanguage, t, tn } from "./i18n.js";
 import {
   splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchFolded, matchName, compareEntries,
 } from "./util.js";
@@ -38,6 +39,14 @@ const searchInput = $("search");
 const statusInfo = $("status-info");
 const statusUser = $("status-user");
 const newBtn = $("new-shortcut");
+
+// The page's language first, so nothing is ever drawn in the wrong one.
+useLanguage(browserLanguage());
+translatePage();
+const langSwitch = $("lang-switch");
+langSwitch.textContent = t("lang.switch");
+langSwitch.lang = t("lang.switchCode");
+langSwitch.addEventListener("click", () => switchLanguage(t("lang.switchCode")));
 
 let me = null;
 let shortcuts = [];
@@ -74,11 +83,9 @@ function isAdmin() {
 async function loadShortcuts() {
   shortcuts = await api.shortcuts();
   tree.setShortcuts(shortcuts);
-  emptyHint.textContent = isAdmin()
-    ? "No shortcuts yet. Click + New (or right-click here) to create one."
-    : "No shortcuts yet. Ask an administrator to add some.";
+  emptyHint.textContent = t(isAdmin() ? "tree.emptyAdmin" : "tree.emptyUser");
   emptyHint.hidden = shortcuts.length > 0;
-  statusInfo.textContent = `${shortcuts.length} shortcut${shortcuts.length === 1 ? "" : "s"}`;
+  statusInfo.textContent = tn("count.shortcuts", shortcuts.length);
   if (searching && !current) restartSearch();   // the sites searched have changed
 }
 
@@ -98,7 +105,7 @@ function renderRight(view) {
 
 function renderBreadcrumb(sel) {
   if (!sel) {
-    breadcrumb.replaceChildren(el("span", "bc-segment muted", "Select a shortcut"));
+    breadcrumb.replaceChildren(el("span", "bc-segment muted", t("nav.pick")));
     return;
   }
   const segment = (text, path) => {
@@ -136,7 +143,7 @@ async function onSelect(sel) {
   renderRight({ entries: cached });
   if (cached) return;
   try {
-    const entries = await busy("Loading folder…", () => tree.listing(sel.shortcut, sel.path));
+    const entries = await busy(t("nav.loadingFolder"), () => tree.listing(sel.shortcut, sel.path));
     if (seq === viewSeq) renderRight({ entries });
   } catch (err) {
     if (seq === viewSeq) renderRight({ error: err });
@@ -156,7 +163,11 @@ function clearSelection() {
 
 // Show whatever folder the URL names (page load, Back / Forward, an edited
 // or pasted link). Unknown shortcuts are ignored; no fragment clears the view.
+// Until the shortcuts are loaded, a link can't be told from an unknown one:
+// the boot follows the URL once they are.
+let booted = false;
 function followUrl() {
+  if (!booted) return;
   const target = parseHash(location.hash);
   if (!target) {
     if (current) clearSelection();
@@ -191,7 +202,7 @@ async function refresh() {
   const seq = ++viewSeq;
   renderRight({ entries: null });
   try {
-    const entries = await busy("Refreshing…", () => tree.refresh(sel.shortcut, sel.path));
+    const entries = await busy(t("nav.refreshing"), () => tree.refresh(sel.shortcut, sel.path));
     if (seq === viewSeq) renderRight({ entries });
   } catch (err) {
     if (seq === viewSeq) renderRight({ error: err });
@@ -243,7 +254,7 @@ let renderQueued = false;
 const placeParts = () => [current.shortcut.label, ...current.path.split("/").filter(Boolean)];
 
 function searchPlaceholder() {
-  return current ? `Search ${placeParts().at(-1)}` : "Search all sites";
+  return current ? t("search.in", { place: placeParts().at(-1) }) : t("search.allSites");
 }
 
 function stopSearch() {
@@ -305,7 +316,8 @@ function renderSearch() {
   matches.sort((a, b) => compareEntries(a.item.entry, b.item.entry) || a.item.path.localeCompare(b.item.path));
   files.renderResults(rightPane, {
     query,
-    scope: current ? placeParts().join(" › ") : "all sites",
+    scope: current ? placeParts().join(" › ") : t("search.scopeAll"),
+    maxFolders: LIMITS.folders,
     sites,
     hits: matches.slice(0, MAX_SHOWN),
     total: matches.length,
@@ -406,11 +418,11 @@ ctxMenu.addEventListener("click", (e) => {
 newBtn.addEventListener("click", () => openShortcutModal(null));
 
 async function deleteShortcut(sc) {
-  if (!confirm(`Delete shortcut "${sc.label}"?\nEveryone loses access to it.`)) return;
+  if (!confirm(t("sc.confirmDelete", { label: sc.label }))) return;
   try {
-    await busy("Deleting…", () => api.deleteShortcut(sc.id));
+    await busy(t("sc.deleting"), () => api.deleteShortcut(sc.id));
   } catch (err) {
-    alert(`Delete failed: ${err.message}`);
+    alert(t("sc.deleteFailed", { reason: err.message }));
     return;
   }
   if (current?.shortcut.id === sc.id) clearSelection();
@@ -439,24 +451,24 @@ function openShortcutModal(existing) {
   editing = existing;
   formError.hidden = true;
   if (existing) {
-    modalTitle.textContent = "Edit shortcut";
+    modalTitle.textContent = t("sc.titleEdit");
     f.username.value = existing.username;
     f.custom.value = splitLabel(existing.label, existing.username);
     f.host.value = existing.host;
     f.port.value = existing.port;
     // The stored password never reaches the browser: blank keeps it.
     f.password.value = "";
-    f.password.placeholder = "Unchanged";
-    f.passwordHint.textContent = "Leave blank to keep the current password. Required if you change the host or port.";
+    f.password.placeholder = t("sc.passwordUnchanged");
+    f.passwordHint.textContent = t("sc.passwordHint");
     passwordTouched = true;
   } else {
-    modalTitle.textContent = "New shortcut";
+    modalTitle.textContent = t("sc.titleNew");
     f.username.value = "";
     f.custom.value = "";
     f.host.value = me.defaults?.host ?? "";
     f.port.value = me.defaults?.port ?? 21;
     f.password.value = "";
-    f.password.placeholder = "Defaults to the username";
+    f.password.placeholder = t("sc.passwordDefault");
     f.passwordHint.textContent = "";
     passwordTouched = false;
   }
@@ -498,7 +510,7 @@ form.addEventListener("submit", async (e) => {
   const wasEditing = editing;
   let id;
   try {
-    id = await busy("Saving…", () => (wasEditing ? api.updateShortcut(wasEditing.id, fields) : api.createShortcut(fields)));
+    id = await busy(t("sc.saving"), () => (wasEditing ? api.updateShortcut(wasEditing.id, fields) : api.createShortcut(fields)));
   } catch (err) {
     formError.textContent = err.message;
     formError.hidden = false;
@@ -527,13 +539,14 @@ refreshBtn.addEventListener("click", refresh);
 
 try {
   me = await api.me();
-  statusUser.textContent = `Signed in as ${me.username}${isAdmin() ? " (admin)" : ""}`;
+  statusUser.textContent = t(isAdmin() ? "auth.signedInAsAdmin" : "auth.signedInAs", { name: me.username });
   newBtn.hidden = !isAdmin();
   tree.init(listEl, [], { onSelect });
   await loadShortcuts();
   renderBreadcrumb(null);
   renderRight(null);
   searchInput.placeholder = searchPlaceholder();
+  booted = true;
   followUrl();
   // On a phone, start where the shortcuts are, unless a link opened a folder.
   if (narrow.matches && !current) setDrawer(true);

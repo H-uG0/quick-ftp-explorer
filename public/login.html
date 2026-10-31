@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="i18n-pending">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -18,16 +18,17 @@
         <p id="login-error" class="form-error" role="alert" hidden></p>
         <input type="hidden" id="next" name="next" />
         <div class="field">
-          <label for="username">Username</label>
+          <label for="username" data-i18n="auth.username">Username</label>
           <input id="username" name="username" type="text" autocomplete="username"
                  autocapitalize="none" spellcheck="false" required autofocus />
         </div>
         <div class="field">
-          <label for="password">Password</label>
+          <label for="password" data-i18n="auth.password">Password</label>
           <input id="password" name="password" type="password" autocomplete="current-password" required />
         </div>
-        <button type="submit" class="btn-block">Sign in</button>
+        <button type="submit" class="btn-block" data-i18n="auth.signIn">Sign in</button>
       </form>
+      <p class="card-footer"><button type="button" id="lang-switch" class="link-button"></button></p>
     </div>
   </main>
   <script type="module" src="/js/login.js"></script>

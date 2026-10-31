@@ -9,7 +9,10 @@
  *   sendJson(res, status, body) / redirect(res, location, status)
  *   parseCookies(req) / serializeCookie(name, value, opts)
  *   clientIp(req, trustProxy) / isSecure(req, trustProxy)
- *   HttpError(status, message, headers)   throw from a handler -> JSON error reply
+ *   requestLanguage(req)            "en" | "fr": the language cookie, else Accept-Language
+ *   HttpError(status, message, headers)   throw from a handler -> JSON error reply;
+ *                                   message: text, or msg(key, params) from
+ *                                   public/js/i18n.js, sent in the reader's language
  *
  * A route is { method, path, auth, handler }: `path` is a RegExp whose named
  * groups become ctx.params; `auth` is "none" | "user" | "admin". GET routes
@@ -24,6 +27,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { translate, msg, pickLanguage, COOKIE as LANGUAGE_COOKIE } from "../public/js/i18n.js";
 
 const BODY_LIMIT = 16 * 1024;
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -51,10 +55,20 @@ const SECURITY_HEADERS = {
 
 export class HttpError extends Error {
   constructor(status, message, headers) {
-    super(message);
+    const text = typeof message === "object" ? message : null;
+    super(text ? translate("en", text.key, text.params) : message);   // English in logs and tests
     this.status = status;
     this.headers = headers;
+    this.text = text;
   }
+
+  localized(lang) {
+    return this.text ? translate(lang, this.text.key, this.text.params) : this.message;
+  }
+}
+
+export function requestLanguage(req) {
+  return pickLanguage(parseCookies(req)[LANGUAGE_COOKIE], req.headers["accept-language"]);
 }
 
 /* ---- request helpers ---- */
@@ -99,7 +113,7 @@ async function readBody(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > BODY_LIMIT) throw new HttpError(413, "Request body too large");
+    if (size > BODY_LIMIT) throw new HttpError(413, msg("err.bodyTooLarge"));
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString("utf8");
@@ -112,9 +126,9 @@ export async function readJson(req) {
   try {
     body = text ? JSON.parse(text) : {};
   } catch {
-    throw new HttpError(400, "Malformed JSON body");
+    throw new HttpError(400, msg("err.badJson"));
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "Expected a JSON object");
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, msg("err.expectedObject"));
   return body;
 }
 
@@ -145,14 +159,14 @@ function escapeHtml(s) {
 
 // For a browser tab (a PDF opened in a new tab, a bookmarked file URL): a
 // readable page instead of raw JSON.
-function sendErrorPage(res, status, message) {
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+function sendErrorPage(res, status, message, lang) {
+  const html = `<!DOCTYPE html><html lang="${lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Error ${status} · Quick FTP Explorer</title><link rel="icon" href="/logo.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/styles.css"></head>
+<title>${escapeHtml(translate(lang, "page.error", { status: String(status) }))} · Quick FTP Explorer</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css"></head>
 <body class="card-page"><main class="card"><div class="brand"><img class="brand-mark" src="/logo.svg" alt="" width="36" height="36">
 <span class="brand-name">Quick FTP Explorer</span></div><div class="card-body"><p class="form-error">${escapeHtml(message)}</p>
-<p><a href="/">Back to the explorer</a></p></div></main></body></html>`;
+<p><a href="/">${escapeHtml(translate(lang, "page.back"))}</a></p></div></main></body></html>`;
   res.writeHead(status, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": Buffer.byteLength(html),
@@ -198,7 +212,7 @@ function checkSameOrigin(req) {
   if (origin === undefined) return;   // non-browser clients (CLI, tests)
   let host = null;
   try { host = new URL(origin).host; } catch { /* "null" or garbage */ }
-  if (host !== req.headers.host) throw new HttpError(403, "Cross-origin request refused");
+  if (host !== req.headers.host) throw new HttpError(403, msg("err.crossOrigin"));
 }
 
 async function dispatch(ctx, routes, staticFiles) {
@@ -216,21 +230,21 @@ async function dispatch(ctx, routes, staticFiles) {
       // Everything under /api speaks JSON. Requiring the header also means a
       // cross-site HTML form can never reach these routes.
       if (url.pathname.startsWith("/api/") && !/^application\/json\b/i.test(req.headers["content-type"] || "")) {
-        throw new HttpError(415, "Expected Content-Type: application/json");
+        throw new HttpError(415, msg("err.jsonOnly"));
       }
     }
-    if (route.auth !== "none" && !ctx.user) throw new HttpError(401, "Sign-in required");
-    if (route.auth === "admin" && ctx.user.role !== "admin") throw new HttpError(403, "Admins only");
+    if (route.auth !== "none" && !ctx.user) throw new HttpError(401, msg("err.signIn"));
+    if (route.auth === "admin" && ctx.user.role !== "admin") throw new HttpError(403, msg("err.adminsOnly"));
 
     ctx.params = { ...m.groups };
     const result = await route.handler(ctx);
     if (result !== undefined && !ctx.res.headersSent) sendJson(ctx.res, 200, result);
     return;
   }
-  if (pathMatched) throw new HttpError(405, "Method not allowed");
+  if (pathMatched) throw new HttpError(405, msg("err.method"));
   const file = method === "GET" && !url.pathname.endsWith(".html") && staticFiles.get(url.pathname);
   if (file) return sendFile(req, ctx.res, file);
-  throw new HttpError(404, "Not found");
+  throw new HttpError(404, msg("err.notFound"));
 }
 
 function fail(ctx, err) {
@@ -244,9 +258,10 @@ function fail(ctx, err) {
   const status = err instanceof HttpError ? err.status : 500;
   if (status === 500) console.error(err);
   for (const [name, value] of Object.entries(err.headers || {})) res.setHeader(name, value);
-  const message = status === 500 ? "Internal server error" : err.message;
+  const lang = requestLanguage(ctx.req);
+  const message = status === 500 ? translate(lang, "err.internal") : err.localized(lang);
   const navigation = ctx.req.method === "GET" && /\btext\/html\b/.test(ctx.req.headers.accept || "");
-  if (navigation) sendErrorPage(res, status, message);
+  if (navigation) sendErrorPage(res, status, message, lang);
   else sendJson(res, status, { error: message });
 }
 
@@ -262,7 +277,7 @@ function parseTarget(raw) {
   if (raw.startsWith("/")) {
     try { return new URL("http://localhost" + raw); } catch { /* fall through */ }
   }
-  throw new HttpError(400, "Bad request target");
+  throw new HttpError(400, msg("err.badTarget"));
 }
 
 export function createHandler({ routes, staticFiles, sessionUser, trustProxy, log = logLine }) {
