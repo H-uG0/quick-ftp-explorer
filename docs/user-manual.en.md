@@ -65,13 +65,13 @@ standard form.
 
 ```
 +----------------------------------------------------------------------+
-| ● Quick FTP Explorer | shortcut › folder › folder    | ↻ | Search... |  top bar
+| ▣ Quick FTP Explorer | shortcut › folder › folder    | ↻ | Search... |  top bar
 +------------------------+---------------------------------------------+
-| SHORTCUTS      + New   | Name               Type   Size   Modified   |
-| ▾ 🖥 main-nvr Office    | 📁 Images          Folder        Apr 01 2026 |
-|   ▸ 📁 Images           | 🎬 clip 08h00.mp4  MP4    12 MB  Apr 01 2026 |
-|   ▸ 📁 Videos           | 🖼 snapshot.jpg    JPG    98 KB  Apr 01 2026 |
-| ▸ 🖥 back-office        |                                             |
+| SHORTCUTS      + New   | Name              Type   Size   Modified    |
+| ▾ main-nvr Office      | Images            Folder        Apr 01 2026 |
+|   ▸ Images             | clip 08h00.mp4    MP4    12 MB  Apr 01 2026 |
+|   ▸ Videos             | snapshot.jpg      JPG    98 KB  Apr 01 2026 |
+| ▸ back-office          |                                             |
 +------------------------+---------------------------------------------+
 | 2 shortcuts                       Signed in as alice   Sign out      |  status bar
 +----------------------------------------------------------------------+
@@ -88,8 +88,8 @@ standard form.
 
 ### 4.2 Left panel &mdash; shortcuts and folders
 
-Each shortcut is a root (🖥) of a tree that shows **folders only**; files
-appear on the right.
+Each shortcut, shown with a camera icon, is the root of a tree that shows
+**folders only**; files appear on the right.
 
 - **Click a row** to show its contents on the right; it also opens the
   folder in the tree.

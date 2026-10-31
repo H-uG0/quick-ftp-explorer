@@ -9,7 +9,7 @@
  *
  * The open folder lives in the URL fragment ("#/<id>/<path>"): links can be
  * bookmarked or shared, and Back / Forward move between folders. On narrow
- * screens the left pane becomes a drawer behind the "☰" button.
+ * screens the left pane becomes a drawer behind the menu button.
  */
 
 import * as api from "./api.js";

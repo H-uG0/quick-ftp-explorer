@@ -148,10 +148,11 @@ function escapeHtml(s) {
 function sendErrorPage(res, status, message) {
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Error ${status} · Quick FTP Explorer</title><link rel="stylesheet" href="/styles.css"></head>
-<body class="card-page"><main class="card"><div class="brand"><span class="brand-dot"></span>
-<span class="brand-name">Quick FTP Explorer</span></div><p class="form-error">${escapeHtml(message)}</p>
-<p><a href="/">Back to the explorer</a></p></main></body></html>`;
+<title>Error ${status} · Quick FTP Explorer</title><link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css"></head>
+<body class="card-page"><main class="card"><div class="brand"><img class="brand-mark" src="/logo.svg" alt="" width="36" height="36">
+<span class="brand-name">Quick FTP Explorer</span></div><div class="card-body"><p class="form-error">${escapeHtml(message)}</p>
+<p><a href="/">Back to the explorer</a></p></div></main></body></html>`;
   res.writeHead(status, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": Buffer.byteLength(html),

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Quick FTP Explorer">
+  <rect width="32" height="32" rx="7" fill="#C00319"/>
+  <path fill="#FCFDFE" d="M6 10.6A1.6 1.6 0 0 1 7.6 9h5.2l2.4 2.5h9.2a1.6 1.6 0 0 1 1.6 1.6v9.3a1.6 1.6 0 0 1-1.6 1.6H7.6A1.6 1.6 0 0 1 6 22.4z"/>
+  <circle cx="16" cy="17.8" r="4.4" fill="#02121F"/>
+  <circle cx="16" cy="17.8" r="2" fill="#C00319"/>
+  <circle cx="14.4" cy="16.2" r="1" fill="#FCFDFE"/>
+</svg>

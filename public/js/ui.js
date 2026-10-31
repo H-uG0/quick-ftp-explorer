@@ -21,11 +21,8 @@
 import * as api from "./api.js";
 import { kindFor, extension } from "./filetypes.js";
 import { joinPath, formatSize, sortEntries, filterEntries } from "./util.js";
+import { icon } from "./icons.js";
 
-const ICONS = {
-  shortcut: "\u{1F5A5}", folder: "\u{1F4C1}", image: "\u{1F5BC}", video: "\u{1F3AC}",
-  audio: "\u{1F3B5}", doc: "\u{1F4C4}", file: "\u{1F4C4}",
-};
 const OPEN = "▾", CLOSED = "▸", LOADING = "◌";   // ▾ ▸ ◌
 
 export function el(tag, className, text) {
@@ -85,7 +82,9 @@ function buildNode(sc, path, label, isRoot) {
   const labelEl = el("span", "tree-label", label);
   // Admins also know where the server lives; everyone else just sees the label.
   labelEl.title = isRoot ? (sc.host ? `${sc.label}  (${sc.host}:${sc.port})` : sc.label) : path;
-  row.append(toggle, el("span", "tree-icon", isRoot ? ICONS.shortcut : ICONS.folder), labelEl);
+  const iconEl = el("span", "tree-icon");
+  iconEl.append(icon(isRoot ? "site" : "folder"));
+  row.append(toggle, iconEl, labelEl);
 
   const children = el("ul", "tree-children");
   children.hidden = !open;
@@ -247,7 +246,9 @@ function renderFiles(container, view, callbacks) {
     row.tabIndex = 0;
     const name = row.insertCell();
     name.className = "col-name";
-    name.append(el("span", "file-icon", ICONS[kind]), el("span", "file-name", entry.name));
+    const iconEl = el("span", "file-icon");
+    iconEl.append(icon(kind));
+    name.append(iconEl, el("span", "file-name", entry.name));
     name.title = entry.name;
     row.append(
       el("td", "col-type muted", entry.isDir ? "Folder" : (extension(entry.name).toUpperCase() || "File")),

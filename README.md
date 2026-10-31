@@ -90,6 +90,8 @@ behind an existing reverse proxy, and running without Docker.
 - [Architecture](docs/architecture.md): request pipeline, accounts and
   sessions, the shortcut store, the FTP gateway, the browser UI,
   configuration, tests.
+- [Product and design principles](PRODUCT.md): who it is for, and the
+  Dessaud Alarme Service look.
 - The original Windows app: [`legacy/`](legacy/README.md)
 
 ## Development

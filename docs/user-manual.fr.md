@@ -67,13 +67,13 @@ page de connexion est un formulaire standard.
 
 ```
 +----------------------------------------------------------------------+
-| ● Quick FTP Explorer | raccourci › dossier › dossier | ↻ | Search... |  barre du haut
+| ▣ Quick FTP Explorer | raccourci › dossier › dossier | ↻ | Search... |  barre du haut
 +------------------------+---------------------------------------------+
-| SHORTCUTS      + New   | Name               Type   Size   Modified   |
-| ▾ 🖥 main-nvr Bureau    | 📁 Images          Folder        Apr 01 2026 |
-|   ▸ 📁 Images           | 🎬 clip 08h00.mp4  MP4    12 MB  Apr 01 2026 |
-|   ▸ 📁 Videos           | 🖼 capture.jpg     JPG    98 KB  Apr 01 2026 |
-| ▸ 🖥 back-office        |                                             |
+| SHORTCUTS      + New   | Name              Type   Size   Modified    |
+| ▾ main-nvr Bureau      | Images            Folder        Apr 01 2026 |
+|   ▸ Images             | clip 08h00.mp4    MP4    12 MB  Apr 01 2026 |
+|   ▸ Videos             | capture.jpg       JPG    98 KB  Apr 01 2026 |
+| ▸ back-office          |                                             |
 +------------------------+---------------------------------------------+
 | 2 shortcuts                       Signed in as alice   Sign out      |  barre d'état
 +----------------------------------------------------------------------+
@@ -95,8 +95,9 @@ libellés.
 
 ### 4.2 Panneau de gauche &mdash; raccourcis et dossiers
 
-Chaque raccourci est la racine (🖥) d'une arborescence qui n'affiche **que
-les dossiers** ; les fichiers apparaissent à droite.
+Chaque raccourci, marqué d'une icône de caméra, est la racine d'une
+arborescence qui n'affiche **que les dossiers** ; les fichiers apparaissent
+à droite.
 
 - **Cliquez sur une ligne** pour afficher son contenu à droite ; le dossier
   s'ouvre aussi dans l'arborescence.

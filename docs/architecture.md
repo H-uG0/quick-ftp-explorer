@@ -407,7 +407,9 @@ regexes, `onmousewheel`, simulated clicks).
 | `js/app.js` | Wiring: selection, breadcrumb, search, opening files, splitter, shortcut management | `app.js` |
 | `js/util.js` | Pure helpers (paths, sizes, natural sort, labels), unit-tested | (inline in `ui.js` / `app.js`) |
 | `js/filetypes.js` | File kinds and inline types, shared with the server | `kindFor` in `ui.js` |
-| `styles.css` | The File-Explorer look, in CSS custom properties | `styles.css` |
+| `js/icons.js` | The tree's and table's line icons, built as DOM nodes | emoji in `ui.js` |
+| `styles.css` | The File-Explorer layout in the Dessaud Alarme Service colours, as OKLCH custom properties | `styles.css` |
+| `logo.svg` | The logo and favicon: a folder holding a camera lens, on the brand red | (none) |
 
 **One listing per folder, shared by both panes.** `tree.listing(sc, path)`
 returns a cached promise; the tree and the right pane both use it. In the
@@ -467,6 +469,16 @@ request returns the JSON error) and shows that, with a download link.
 / Delete); everyone else keeps the browser's own context menu. Shortcut
 forms show server errors inline (400/409) instead of `alert()`. Edit leaves
 the password empty, because the stored one never reaches the browser.
+
+**Look and accessibility.** The palette comes from the Dessaud Alarme
+Service logo: an ink navy carries the frame (top bar, sign-in header,
+primary buttons), and the signal red is kept for the logo and for errors.
+Neutrals are tinted toward the navy. The colours are OKLCH custom
+properties at the top of `styles.css`, and text and controls meet WCAG AA
+contrast. Sizes are in `rem`, so the browser's text-size setting applies;
+on phones every row and button is at least 44 px tall; and
+`prefers-reduced-motion` turns transitions off. The product and design
+principles behind these choices are in [PRODUCT.md](../PRODUCT.md).
 
 **Safety.** Every name that comes from an FTP server reaches the page via
 `textContent` / DOM nodes, never as HTML. The page has no inline scripts or

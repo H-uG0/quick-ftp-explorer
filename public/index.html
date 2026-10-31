@@ -4,21 +4,25 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Quick FTP Explorer</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
-      <button type="button" id="menu-toggle" class="btn-secondary btn-icon menu-toggle" aria-label="Shortcuts" aria-controls="left-pane" aria-expanded="false">&#x2630;</button>
+      <button type="button" id="menu-toggle" class="btn-secondary btn-icon menu-toggle" aria-label="Shortcuts" aria-controls="left-pane" aria-expanded="false">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
+      </button>
       <div class="brand">
-        <span class="brand-dot"></span>
+        <img class="brand-mark" src="/logo.svg" alt="" width="26" height="26" />
         <span class="brand-name">Quick FTP Explorer</span>
       </div>
       <nav id="breadcrumb" class="breadcrumb" aria-label="Current folder">
         <span class="bc-segment muted">Select a shortcut</span>
       </nav>
-      <button type="button" id="refresh" class="btn-secondary btn-icon" title="Refresh this folder" aria-label="Refresh this folder" disabled>&#x21BB;</button>
+      <button type="button" id="refresh" class="btn-secondary btn-icon" title="Refresh this folder" aria-label="Refresh this folder" disabled>
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 8a5.25 5.25 0 1 1-1.54-3.71"/><path d="M13.25 2.5v3h-3"/></svg>
+      </button>
       <div class="search">
         <input type="search" id="search" placeholder="Search..." autocomplete="off" aria-label="Search shortcuts and files" />
       </div>
