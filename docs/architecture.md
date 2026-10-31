@@ -418,7 +418,7 @@ by name in the open folder and all its subfolders, or in every site when
 none is open (matching sites are listed first). `search.js` walks the
 folders through `tree.listing`, so it shares the listing cache: a second
 search of a place is instant, and opening a folder found by a search
-needs no new listing. The walk reads at most 4 folders at a time and 300
+needs no new listing. The walk reads at most 6 folders at a time and 300
 in all, 10 levels deep, and never follows links, so one search can't flood
 the FTP server. Typing only re-filters what has been read: words are
 folded (lower case, no accents) and must all appear, in any order

@@ -18,7 +18,9 @@
 
 import { joinPath, fold } from "./util.js";
 
-export const LIMITS = { folders: 300, depth: 10, concurrency: 4 };
+// 6 at a time stays well under the gateway's 10 connections per FTP server
+// (FTP_MAX_CONNECTIONS), which every user shares.
+export const LIMITS = { folders: 300, depth: 10, concurrency: 6 };
 
 export function scan(roots, listing, onChange, limits = LIMITS) {
   const queue = roots.map((root) => ({ ...root, depth: 0 }));
