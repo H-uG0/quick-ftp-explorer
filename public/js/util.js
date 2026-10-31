@@ -4,8 +4,12 @@
  *
  *   joinPath(parent, name)          "/a" + "b" -> "/a/b"
  *   formatSize(bytes)               "12.3 MB"
- *   sortEntries(entries)            folders first, then natural, case-insensitive order
- *   filterEntries(entries, text)    case-insensitive substring match on names
+ *   compareEntries(a, b)            folders first, then natural, case-insensitive order
+ *   sortEntries(entries)            a sorted copy
+ *   fold(text)                      { text, from }: lower case, no accents, mapped back
+ *   searchTerms(query)              the folded words of a search
+ *   matchFolded(folded, terms)      null, or the ranges to highlight: every word must match
+ *   matchName(name, terms)          the same, from a plain name
  *   splitLabel(label, username)     the custom part of "<username> <custom>"
  *   composeLabel(username, custom)  the reverse
  *   formatHash(id, path)            "#/<shortcut id>/<folder>/<folder>", each part URL-encoded
@@ -28,16 +32,60 @@ export function formatSize(bytes) {
   return (n / 1024 ** 3).toFixed(2) + " GB";
 }
 
-export function sortEntries(entries) {
-  return [...entries].sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-    return collator.compare(a.name, b.name);
-  });
+export function compareEntries(a, b) {
+  if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+  return collator.compare(a.name, b.name);
 }
 
-export function filterEntries(entries, text) {
-  const q = String(text ?? "").trim().toLowerCase();
-  return q ? entries.filter((e) => e.name.toLowerCase().includes(q)) : entries;
+export function sortEntries(entries) {
+  return [...entries].sort(compareEntries);
+}
+
+// Search ignores case and accents: "ete" finds "Été". For each character of
+// the folded text, `from` keeps its index in the original, so a match can be
+// highlighted there; its last item is the original's length.
+export function fold(text) {
+  let folded = "";
+  const from = [];
+  let at = 0;
+  for (const char of String(text)) {
+    const plain = char.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    for (let i = 0; i < plain.length; i++) {
+      folded += plain[i];
+      from.push(at);
+    }
+    at += char.length;
+  }
+  from.push(at);
+  return { text: folded, from };
+}
+
+export function searchTerms(query) {
+  return fold(query).text.split(/\s+/).filter(Boolean);
+}
+
+// Every word must appear, in any order: "garage 0830" finds
+// "1234_Garage 1_20261030083000.avi". Returns null, or the [start, end)
+// ranges of the original text to highlight, sorted and merged.
+export function matchFolded(folded, terms) {
+  const ranges = [];
+  for (const term of terms) {
+    const at = folded.text.indexOf(term);
+    if (at < 0) return null;
+    ranges.push([folded.from[at], folded.from[at + term.length]]);
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const range of ranges) {
+    const last = merged.at(-1);
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+    else merged.push([...range]);
+  }
+  return merged;
+}
+
+export function matchName(name, terms) {
+  return matchFolded(fold(name), terms);
 }
 
 // Labels are "<username> <custom text>", so Edit can prefill both fields:

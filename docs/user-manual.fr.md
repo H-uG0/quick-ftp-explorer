@@ -239,15 +239,31 @@ Quick FTP Explorer.
 
 ## 7. Recherche
 
-Tapez dans le champ **Search** de la barre du haut. Au fil de la frappe :
+Tapez dans le champ de recherche de la barre du haut pour trouver des
+**fichiers et des dossiers** par leur nom :
 
-- le panneau de gauche n'affiche que les raccourcis dont le libellé
-  contient le texte ;
-- le panneau de droite n'affiche que les éléments du dossier courant dont
-  le nom le contient.
+- Si un dossier est ouvert, la recherche porte sur ce dossier **et tous
+  ses sous-dossiers**. Le champ indique où, par exemple *Search Images*
+  (rechercher dans Images).
+- Si rien n'est ouvert, elle porte sur **tous les sites**, et les sites
+  correspondants apparaissent en premier.
 
-La recherche ignore les majuscules et minuscules. Videz le champ pour tout
-réafficher.
+Les résultats s'affichent à droite au fil de la frappe. Sous chaque nom
+figure le dossier où il se trouve, et la partie trouvée est surlignée.
+Cliquez sur un fichier pour l'ouvrir, ou sur un dossier ou un site pour y
+aller. **Search all sites** (rechercher partout) étend la recherche à tous
+les sites.
+
+- Les majuscules et les accents n'ont pas d'importance : `ete` trouve
+  `Été`.
+- Plusieurs mots doivent tous être présents, dans n'importe quel ordre :
+  `garage 0830` trouve `1234_Garage 1_20261030083000.avi`.
+- Videz le champ, ou appuyez sur `Échap`, pour revenir au dossier.
+
+La première recherche dans un endroit lit ses dossiers sur le serveur, ce
+qui peut prendre quelques secondes sur un gros site ; ensuite, elle est
+instantanée. Une recherche lit au plus 300 dossiers : pour chercher plus
+profond, ouvrez d'abord un sous-dossier.
 
 ---
 

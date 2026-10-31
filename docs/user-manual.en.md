@@ -218,14 +218,27 @@ nothing, allow pop-ups for the Quick FTP Explorer address.
 
 ## 7. Searching
 
-Type in the **Search** box in the top bar. As you type:
+Type in the **Search** box in the top bar to find **files and folders** by
+name:
 
-- the left panel only shows shortcuts whose label contains the text;
-- the right panel only shows entries of the current folder whose name
-  contains it.
+- With a folder open, it searches that folder **and all its subfolders**.
+  The box says where, for example *Search Images*.
+- With nothing open, it searches **every site**, and lists matching sites
+  first.
 
-The search ignores upper/lower case. Clear the box to show everything
-again.
+Results appear on the right as you type. Each one shows, under its name,
+the folder it is in, with the matching part highlighted. Click a file to
+open it, or a folder or site to go there. **Search all sites** widens a
+search to every site.
+
+- Upper/lower case and accents don't matter: `ete` finds `Été`.
+- Several words must all appear, in any order: `garage 0830` finds
+  `1234_Garage 1_20261030083000.avi`.
+- Clear the box, or press `Esc`, to get back to the folder.
+
+The first search of a place reads its folders from the server, which can
+take a few seconds on a big site; searching there again is instant. One
+search reads at most 300 folders: to search deeper, open a subfolder first.
 
 ---
 

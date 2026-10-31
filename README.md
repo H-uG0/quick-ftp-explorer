@@ -14,8 +14,11 @@ signs in and browses, from any device, with nothing to install.
 ## Features
 
 - **File-Explorer-style browsing.** Shortcut and folder tree on the left,
-  name / type / size / modified table on the right, breadcrumb, live search,
-  refresh, resizable panes.
+  name / type / size / modified table on the right, breadcrumb, refresh,
+  resizable panes.
+- **Search that finds things.** Files and folders by name, in the open
+  folder and all its subfolders or in every site, ignoring case and
+  accents; results show where each one is.
 - **Links and the Back button.** The address bar names the open folder:
   bookmark it, send it to a colleague (it survives the sign-in page), and
   move between folders with Back and Forward.

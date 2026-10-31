@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  joinPath, formatSize, sortEntries, filterEntries, splitLabel, composeLabel, formatHash, parseHash,
+  joinPath, formatSize, sortEntries, splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchName,
 } from "../public/js/util.js";
 
 test("joinPath", () => {
@@ -33,11 +33,21 @@ test("sortEntries: folders first, then natural, case-insensitive order", () => {
   assert.equal(entries[0].name, "clip 10.mp4", "the input is not modified");
 });
 
-test("filterEntries: case-insensitive substring, blank means everything", () => {
-  const entries = [{ name: "Été 2026.jpg" }, { name: "notes.txt" }];
-  assert.deepEqual(filterEntries(entries, " été ").map((e) => e.name), ["Été 2026.jpg"]);
-  assert.equal(filterEntries(entries, "").length, 2);
-  assert.deepEqual(filterEntries(entries, "zzz"), []);
+test("search ignores case and accents, and says where the name matched", () => {
+  assert.deepEqual(searchTerms("  Été   2026 "), ["ete", "2026"]);
+  assert.deepEqual(matchName("Été 2026.jpg", searchTerms("ete")), [[0, 3]]);
+  assert.deepEqual(matchName("photo été.png", searchTerms("ÉTÉ")), [[6, 9]]);
+  assert.deepEqual(matchName("Dossier avec accents éàü", searchTerms("eau")), [[21, 24]]);
+  assert.equal(matchName("notes.txt", searchTerms("zzz")), null);
+});
+
+test("search needs every word, in any order, and merges overlapping highlights", () => {
+  const clip = "1234_Garage 1_20261030083000.avi";
+  assert.deepEqual(matchName(clip, searchTerms("garage 0830")), [[5, 11], [22, 26]]);
+  assert.deepEqual(matchName(clip, searchTerms("0830 GARAGE")), [[5, 11], [22, 26]]);
+  assert.equal(matchName(clip, searchTerms("garage 0900")), null);
+  assert.deepEqual(matchName("abcdef", searchTerms("bcd cde")), [[1, 5]]);
+  assert.deepEqual(matchName("anything", []), [], "no words: everything matches, nothing to highlight");
 });
 
 test("folder links: formatHash and parseHash round-trip, accents and spaces included", () => {

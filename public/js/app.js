@@ -4,8 +4,10 @@
  * Selecting a folder in the tree (or a breadcrumb segment, or a folder row
  * on the right) shows its files on the right. Clicking a file opens it by
  * kind: images, video and audio in the in-app viewer; PDF and text in a new
- * tab; everything else downloads. Admins also manage shortcuts here: "+ New"
- * in the left pane, or right-click a shortcut for Edit / Delete.
+ * tab; everything else downloads. The search box finds files and folders
+ * in the open folder and all its subfolders, or in every site. Admins also
+ * manage shortcuts here: "+ New" in the left pane, or right-click a
+ * shortcut for Edit / Delete.
  *
  * The open folder lives in the URL fragment ("#/<id>/<path>"): links can be
  * bookmarked or shared, and Back / Forward move between folders. On narrow
@@ -16,7 +18,10 @@ import * as api from "./api.js";
 import { tree, files, el } from "./ui.js";
 import { viewer } from "./viewer.js";
 import { kindFor, inlineType } from "./filetypes.js";
-import { splitLabel, composeLabel, formatHash, parseHash } from "./util.js";
+import { scan } from "./search.js";
+import {
+  splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchFolded, matchName, compareEntries,
+} from "./util.js";
 
 const $ = (id) => document.getElementById(id);
 const appEl = $("app");
@@ -37,8 +42,8 @@ const newBtn = $("new-shortcut");
 let me = null;
 let shortcuts = [];
 let current = null;    // { shortcut, path } shown on the right
-let rightView = null;  // what the right pane shows (see files.render)
-let filter = "";
+let rightView = null;  // the open folder's view (see files.render), kept while searching
+let searching = null;  // { key, progress } while the search box holds text
 let viewSeq = 0;       // ignore listings that arrive after the selection moved on
 
 /* ---- spinner (ref-counted, shown only for operations that take a while) ---- */
@@ -74,13 +79,17 @@ async function loadShortcuts() {
     : "No shortcuts yet. Ask an administrator to add some.";
   emptyHint.hidden = shortcuts.length > 0;
   statusInfo.textContent = `${shortcuts.length} shortcut${shortcuts.length === 1 ? "" : "s"}`;
+  if (searching && !current) restartSearch();   // the sites searched have changed
 }
 
 /* ---- right pane ---- */
 
+// While a search is on, the folder's view is only remembered, for when the
+// search box is cleared.
 function renderRight(view) {
   rightView = view;
-  files.render(rightPane, current && { ...view, path: current.path, filter }, {
+  if (searching) return;
+  files.render(rightPane, current && { ...view, path: current.path }, {
     onNavigate: (path) => tree.reveal(current.shortcut, path),
     onOpen: (entry, path) => openFile(current.shortcut, entry, path),
     onRetry: () => onSelect(current),
@@ -111,7 +120,9 @@ function renderBreadcrumb(sel) {
 }
 
 async function onSelect(sel) {
+  clearSearch();   // as in File Explorer, going somewhere ends the search
   current = sel;
+  searchInput.placeholder = searchPlaceholder();
   // A new history entry per folder, unless the URL already says so (Back /
   // Forward, a pasted link, the page loading).
   const hash = formatHash(sel.shortcut.id, sel.path);
@@ -134,6 +145,7 @@ async function onSelect(sel) {
 
 function clearSelection() {
   current = null;
+  searchInput.placeholder = searchPlaceholder();
   tree.clearSelection();
   refreshBtn.disabled = true;
   document.title = "Quick FTP Explorer";
@@ -184,6 +196,7 @@ async function refresh() {
   } catch (err) {
     if (seq === viewSeq) renderRight({ error: err });
   }
+  if (searching) restartSearch();
 }
 
 /* ---- opening files ---- */
@@ -220,10 +233,100 @@ function openFile(sc, entry, path) {
 
 /* ---- search ---- */
 
+// The open folder and all its subfolders, or every site when none is open.
+// Typing only re-filters what the walk has read (search.js); the walk starts
+// again only when the place searched changes.
+const MAX_SHOWN = 500;
+let searchTimer = 0;
+let renderQueued = false;
+
+const placeParts = () => [current.shortcut.label, ...current.path.split("/").filter(Boolean)];
+
+function searchPlaceholder() {
+  return current ? `Search ${placeParts().at(-1)}` : "Search all sites";
+}
+
+function stopSearch() {
+  searching?.progress.cancel();
+  searching = null;
+}
+
+function clearSearch() {
+  clearTimeout(searchTimer);
+  searchInput.value = "";
+  stopSearch();
+}
+
+function runSearch() {
+  if (!searchInput.value.trim()) {
+    if (searching) {
+      stopSearch();
+      renderRight(rightView);
+    }
+    return;
+  }
+  if (narrow.matches) setDrawer(false);
+  const key = current ? `${current.shortcut.id}::${current.path}` : "*";
+  if (searching?.key !== key) {
+    stopSearch();
+    const roots = current ? [{ sc: current.shortcut, path: current.path }] : shortcuts.map((sc) => ({ sc, path: "/" }));
+    searching = { key, progress: scan(roots, tree.listing, queueSearchRender) };
+  }
+  renderSearch();
+}
+
+function restartSearch() {
+  stopSearch();
+  runSearch();
+}
+
+// Folders are read in bursts: draw at most once per frame.
+function queueSearchRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => {
+    renderQueued = false;
+    if (searching) renderSearch();
+  });
+}
+
+function renderSearch() {
+  const query = searchInput.value.trim();
+  const terms = searchTerms(query);
+  const { progress } = searching;
+  const sites = current ? [] : shortcuts
+    .map((sc) => ({ sc, ranges: matchName(sc.label, terms) }))
+    .filter((site) => site.ranges);
+  const matches = [];
+  for (const item of progress.items) {
+    const ranges = matchFolded(item.folded, terms);
+    if (ranges) matches.push({ item, ranges });
+  }
+  matches.sort((a, b) => compareEntries(a.item.entry, b.item.entry) || a.item.path.localeCompare(b.item.path));
+  files.renderResults(rightPane, {
+    query,
+    scope: current ? placeParts().join(" › ") : "all sites",
+    sites,
+    hits: matches.slice(0, MAX_SHOWN),
+    total: matches.length,
+    progress,
+  }, {
+    onOpenSite: (sc) => tree.reveal(sc, "/"),
+    onOpenItem: (item) => (item.entry.isDir ? tree.reveal(item.sc, item.path) : openFile(item.sc, item.entry, item.path)),
+    onSearchAll: current ? () => { clearSelection(); runSearch(); } : null,
+  });
+}
+
 searchInput.addEventListener("input", () => {
-  filter = searchInput.value.trim();
-  tree.setFilter(filter);
-  if (current && rightView) renderRight(rightView);
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 150);
+});
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && searchInput.value) {
+    e.preventDefault();
+    clearSearch();
+    renderRight(rightView);
+  }
 });
 
 /* ---- splitter (mouse, pen and touch) ---- */
@@ -430,6 +533,7 @@ try {
   await loadShortcuts();
   renderBreadcrumb(null);
   renderRight(null);
+  searchInput.placeholder = searchPlaceholder();
   followUrl();
   // On a phone, start where the shortcuts are, unless a link opened a folder.
   if (narrow.matches && !current) setDrawer(true);

@@ -346,8 +346,41 @@ a { color: var(--link); }
   color: var(--muted);
 }
 .entry-row.folder .file-icon,
+.entry-row.site .file-icon,
 .entry-row.video .file-icon { color: var(--primary); }
-.entry-row.folder .file-name { font-weight: 600; }
+.entry-row.folder .file-name,
+.entry-row.site .file-name { font-weight: 600; }
+
+/* ---- search results ---- */
+
+.search-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 10px 14px;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
+}
+.search-status { margin: 0; flex: 1 1 auto; color: var(--text-soft); }
+.search-note { order: 1; margin: 0; flex: 1 0 100%; font-size: var(--fs-sm); color: var(--muted); }
+
+.result-location {
+  display: block;
+  margin: 1px 0 0 26px;   /* under the name, past the icon */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  color: inherit;
+  background: oklch(0.91 0.09 90);
+}
 
 /* ---- buttons ---- */
 

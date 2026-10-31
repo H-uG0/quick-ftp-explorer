@@ -405,11 +405,25 @@ regexes, `onmousewheel`, simulated clicks).
 | `js/ui.js` | `tree` (left pane) and `files` (right-pane table) | `ui.js` |
 | `js/viewer.js` | Modal viewer: images (zoom / pan), video and audio | `viewer.js` (images only) |
 | `js/app.js` | Wiring: selection, breadcrumb, search, opening files, splitter, shortcut management | `app.js` |
-| `js/util.js` | Pure helpers (paths, sizes, natural sort, labels), unit-tested | (inline in `ui.js` / `app.js`) |
+| `js/util.js` | Pure helpers (paths, sizes, natural sort, labels, search matching), unit-tested | (inline in `ui.js` / `app.js`) |
+| `js/search.js` | The folder walk behind the search box, unit-tested | (none: the HTA filtered one folder) |
 | `js/filetypes.js` | File kinds and inline types, shared with the server | `kindFor` in `ui.js` |
 | `js/icons.js` | The tree's and table's line icons, built as DOM nodes | emoji in `ui.js` |
 | `styles.css` | The File-Explorer layout in the Dessaud Alarme Service colours, as OKLCH custom properties | `styles.css` |
 | `logo.svg` | The logo and favicon: a folder holding a camera lens, on the brand red | (none) |
+
+**Search, as in File Explorer.** The top bar's box finds files and folders
+by name in the open folder and all its subfolders, or in every site when
+none is open (matching sites are listed first). `search.js` walks the
+folders through `tree.listing`, so it shares the listing cache: a second
+search of a place is instant, and opening a folder found by a search
+needs no new listing. The walk reads at most 4 folders at a time and 300
+in all, 10 levels deep, and never follows links, so one search can't flood
+the FTP server. Typing only re-filters what has been read: words are
+folded (lower case, no accents) and must all appear, in any order
+(`matchFolded` in `util.js`), and the matched parts are highlighted with
+`<mark>` text nodes. Going to any folder ends the search, as in File
+Explorer; `Esc` clears it. At most 500 results are drawn.
 
 **One listing per folder, shared by both panes.** `tree.listing(sc, path)`
 returns a cached promise; the tree and the right pane both use it. In the
@@ -536,7 +550,10 @@ dependencies:
   response, the audit trail, and `cli import` run as a real subprocess.
 - `tests/filetypes.test.js`: nothing that can carry script is ever inline.
 - `tests/util.test.js`: the UI's pure helpers (natural sort, labels, sizes,
-  paths, folder links).
+  paths, folder links, search matching with accents and several words).
+- `tests/search.test.js`: the search's folder walk against a fake listing:
+  every depth, links not followed, the folder, depth and concurrency
+  limits, unreadable folders, cancellation.
 - `tests/ftp.test.js`: path and range parsing, error mapping, parity with
   the legacy parser on `tests/fixtures/listing-unix.txt`, and the gateway
   against a server. Covered: the exact `CWD a` / `CWD b` / `LIST`

@@ -3,12 +3,12 @@
  *
  *   tree.init(rootEl, shortcuts, { onSelect })  paint the shortcut roots
  *   tree.setShortcuts(shortcuts)                 replace roots; keep expand state, listings, selection
- *   tree.setFilter(text)                         hide shortcut roots whose label doesn't match
  *   tree.listing(sc, path)                       promise of a folder's entries (cached)
  *   tree.cached(sc, path)                        entries if already loaded, else null
  *   tree.reveal(sc, path)                        open every ancestor and select a folder
  *   tree.refresh(sc, path)                       forget a listing and load it again
  *   files.render(container, view, callbacks)     the name / type / size / modified table
+ *   files.renderResults(container, view, callbacks)   search results, with where each one is
  *
  * The tree shows shortcuts as roots and FOLDERS ONLY below them; files go in
  * the right pane. State is keyed by "<shortcutId>::<path>" so expand state,
@@ -20,7 +20,7 @@
 
 import * as api from "./api.js";
 import { kindFor, extension } from "./filetypes.js";
-import { joinPath, formatSize, sortEntries, filterEntries } from "./util.js";
+import { joinPath, formatSize, sortEntries } from "./util.js";
 import { icon } from "./icons.js";
 
 const OPEN = "▾", CLOSED = "▸", LOADING = "◌";   // ▾ ▸ ◌
@@ -43,7 +43,6 @@ const state = {
   listings: new Map(),   // key -> { promise, entries, error }
   expanded: new Set(),   // keys
   activeKey: null,
-  filter: "",            // lower-cased; "" shows everything
 };
 
 function listing(sc, path) {
@@ -61,13 +60,7 @@ function listing(sc, path) {
 }
 
 function renderAll() {
-  const roots = state.shortcuts
-    .filter((sc) => !state.filter || sc.label.toLowerCase().includes(state.filter))
-    .map((sc) => buildNode(sc, "/", sc.label, true));
-  if (roots.length === 0 && state.filter) {
-    roots.push(el("li", "tree-message muted", `No shortcuts match "${state.filter}".`));
-  }
-  rootEl.replaceChildren(...roots);
+  rootEl.replaceChildren(...state.shortcuts.map((sc) => buildNode(sc, "/", sc.label, true)));
 }
 
 function buildNode(sc, path, label, isRoot) {
@@ -172,11 +165,6 @@ export const tree = {
     renderAll();
   },
 
-  setFilter(text) {
-    state.filter = String(text ?? "").trim().toLowerCase();
-    renderAll();
-  },
-
   listing,
 
   cached(sc, path) {
@@ -214,11 +202,46 @@ export const tree = {
 
 const COLUMNS = [["col-name", "Name"], ["col-type", "Type"], ["col-size", "Size"], ["col-date", "Modified"]];
 
-// view = null (nothing selected) | { path, filter, entries | null (loading) | error }
+function fileTable() {
+  const table = el("table", "file-table");
+  const head = table.createTHead().insertRow();
+  for (const [className, text] of COLUMNS) head.append(el("th", className, text));
+  return { table, body: table.createTBody() };
+}
+
+const typeOf = (entry) => (entry.isDir ? "Folder" : (extension(entry.name).toUpperCase() || "File"));
+const sizeOf = (entry) => (entry.isDir ? "" : formatSize(entry.size));
+
+// One row: icon, name (and `below` it, where a search result lives), type,
+// size, date. One click (or Enter) activates it.
+function addRow(body, { kind, name, title, below, type, size, date }, activate) {
+  const row = body.insertRow();
+  row.className = `entry-row ${kind}`;
+  row.tabIndex = 0;
+  const cell = row.insertCell();
+  cell.className = "col-name";
+  cell.title = title;
+  const iconEl = el("span", "file-icon");
+  iconEl.append(icon(kind));
+  cell.append(iconEl, name);
+  if (below) cell.append(below);
+  row.append(el("td", "col-type muted", type), el("td", "col-size muted", size), el("td", "col-date muted", date ?? ""));
+  const run = () => {
+    body.querySelector("tr.selected")?.classList.remove("selected");
+    row.classList.add("selected");
+    activate();
+  };
+  row.addEventListener("click", run);
+  row.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") run();
+  });
+}
+
+// view = null (nothing selected) | { path, entries | null (loading) | error }
 // callbacks = { onNavigate(path), onOpen(entry, path), onRetry() }
 function renderFiles(container, view, callbacks) {
   const message = (text, className = "placeholder muted") => container.replaceChildren(el("p", className, text));
-  if (!view) return message("Select a shortcut to browse its files.");
+  if (!view) return message("Select a shortcut to browse its files, or search them all from the top bar.");
   if (view.error) {
     const p = el("p", "placeholder placeholder-error", view.error.message + " ");
     const retry = el("button", "btn-secondary btn-sm", "Retry");
@@ -228,48 +251,80 @@ function renderFiles(container, view, callbacks) {
     return container.replaceChildren(p);
   }
   if (!view.entries) return message("Loading…");
+  if (view.entries.length === 0) return message("(empty folder)");
 
-  const entries = filterEntries(sortEntries(view.entries), view.filter);
-  if (entries.length === 0) {
-    return message(view.filter ? `No entries match "${view.filter}".` : "(empty folder)");
-  }
-
-  const table = el("table", "file-table");
-  const head = table.createTHead().insertRow();
-  for (const [className, text] of COLUMNS) head.append(el("th", className, text));
-  const body = table.createTBody();
-
-  for (const entry of entries) {
-    const kind = kindFor(entry.name, entry.isDir);
-    const row = body.insertRow();
-    row.className = `entry-row ${kind}`;
-    row.tabIndex = 0;
-    const name = row.insertCell();
-    name.className = "col-name";
-    const iconEl = el("span", "file-icon");
-    iconEl.append(icon(kind));
-    name.append(iconEl, el("span", "file-name", entry.name));
-    name.title = entry.name;
-    row.append(
-      el("td", "col-type muted", entry.isDir ? "Folder" : (extension(entry.name).toUpperCase() || "File")),
-      el("td", "col-size muted", entry.isDir ? "" : formatSize(entry.size)),
-      el("td", "col-date muted", entry.date),
-    );
-
-    // One click (or Enter) opens: folders navigate, files open or download.
-    const activate = () => {
-      body.querySelector("tr.selected")?.classList.remove("selected");
-      row.classList.add("selected");
+  const { table, body } = fileTable();
+  for (const entry of sortEntries(view.entries)) {
+    const name = el("span", "file-name", entry.name);
+    addRow(body, { kind: kindFor(entry.name, entry.isDir), name, title: entry.name, type: typeOf(entry), size: sizeOf(entry), date: entry.date }, () => {
       const full = joinPath(view.path, entry.name);
       if (entry.isDir) callbacks.onNavigate(full);
       else callbacks.onOpen(entry, full);
-    };
-    row.addEventListener("click", activate);
-    row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") activate();
     });
   }
   container.replaceChildren(table);
 }
 
-export const files = { render: renderFiles };
+// The name, with what matched the search in <mark>. Text nodes only.
+function highlighted(text, ranges) {
+  const span = el("span", "file-name");
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) span.append(text.slice(at, start));
+    span.append(el("mark", "", text.slice(start, end)));
+    at = end;
+  }
+  if (at < text.length) span.append(text.slice(at));
+  return span;
+}
+
+const plural = (n, one, many = one + "s") => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+// view = { query, scope (a label), sites: [{ sc, ranges }], hits: [{ item, ranges }],
+//          total (hits before the display cap), progress (see search.js) }
+// callbacks = { onOpenSite(sc), onOpenItem(item), onSearchAll (or null) }
+function renderResults(container, view, callbacks) {
+  const { query, scope, sites, hits, total, progress } = view;
+  const count = sites.length + total;
+  const header = el("div", "search-header");
+  const status = el("p", "search-status");
+  status.setAttribute("aria-live", "polite");
+  status.textContent = progress.done
+    ? (count ? `${plural(count, "result")} for "${query}" in ${scope}.` : `Nothing matches "${query}" in ${scope}.`)
+    : `Searching ${scope}… ${plural(progress.listed, "folder")} read, ${plural(count, "result")} so far.`;
+  header.append(status);
+  const notes = [];
+  if (total > hits.length) notes.push(`Showing the first ${hits.length.toLocaleString()}: add words to narrow the search.`);
+  if (progress.truncated) notes.push("The search stopped after 300 folders: open a subfolder to search it fully.");
+  if (progress.failed) notes.push(`${plural(progress.failed, "folder")} couldn't be read.`);
+  for (const note of notes) header.append(el("p", "search-note", note));
+  if (callbacks.onSearchAll) {
+    const all = el("button", "btn-secondary btn-sm", "Search all sites");
+    all.type = "button";
+    all.addEventListener("click", callbacks.onSearchAll);
+    header.append(all);
+  }
+  if (!sites.length && !hits.length) return container.replaceChildren(header);
+
+  const { table, body } = fileTable();
+  for (const { sc, ranges } of sites) {
+    addRow(body, { kind: "site", name: highlighted(sc.label, ranges), title: sc.label, type: "Site", size: "" },
+      () => callbacks.onOpenSite(sc));
+  }
+  for (const { item, ranges } of hits) {
+    const { entry, sc, parent } = item;
+    const where = [sc.label, ...parent.split("/").filter(Boolean)].join(" › ");
+    addRow(body, {
+      kind: kindFor(entry.name, entry.isDir),
+      name: highlighted(entry.name, ranges),
+      title: `${entry.name}\n${where}`,
+      below: el("span", "result-location", where),
+      type: typeOf(entry),
+      size: sizeOf(entry),
+      date: entry.date,
+    }, () => callbacks.onOpenItem(item));
+  }
+  container.replaceChildren(header, table);
+}
+
+export const files = { render: renderFiles, renderResults };
