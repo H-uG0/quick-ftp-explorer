@@ -147,6 +147,8 @@ docker compose exec app node server/cli.js user list
 ```
 
 Changes apply immediately, with no restart. Usernames are case-insensitive.
+Once the first administrator exists, administrators can also do all of
+this in the app, under **Accounts** in the status bar (user manual §8.4).
 Give every person their own account: the audit trail is per account, and
 removing someone affects nobody else.
 

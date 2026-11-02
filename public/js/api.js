@@ -7,6 +7,8 @@
  *   createShortcut(fields)            -> id
  *   updateShortcut(id, fields)        -> id (changes when the username does)
  *   deleteShortcut(id)
+ *   users()                           [{ name, role }] (admins)
+ *   createUser({ name, role, password }), updateUser(name, { role?, password? }), deleteUser(name)
  *   listDir(id, path, { auto })       [{ name, isDir, isLink, size, date, modified }];
  *                                     auto: the page's own check for new files
  *   fileUrl(id, path, { download })   URL for <img>, <video>, links
@@ -60,6 +62,12 @@ export const createShortcut = async (fields) => (await call("POST", "/api/shortc
 export const updateShortcut = async (id, fields) => (await call("PUT", shortcutUrl(id), fields)).id;
 
 export const deleteShortcut = (id) => call("DELETE", shortcutUrl(id));
+
+const userUrl = (name) => `/api/users/${encodeURIComponent(name)}`;
+export const users = async () => (await call("GET", "/api/users")).users;
+export const createUser = (fields) => call("POST", "/api/users", fields);
+export const updateUser = (name, fields) => call("PUT", userUrl(name), fields);
+export const deleteUser = (name) => call("DELETE", userUrl(name));
 
 export const listDir = async (id, path, { auto = false } = {}) =>
   (await call("GET", `${shortcutUrl(id)}/list?path=${encodeURIComponent(path)}${auto ? "&auto=1" : ""}`)).entries;

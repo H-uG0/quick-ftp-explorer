@@ -44,7 +44,7 @@ test("French typography: no-break spaces before : ; ? ! and inside « »", () =>
 
 test("every key the code and the pages use exists", () => {
   const namespaces = "api|common|lang|auth|nav|count|tree|files|col|type|search|sc|viewer|size|page|field|err|" +
-    "sort|filter|sel|cmd|menu|status|a11y|date|group|kbd|help|share|zip|refresh";
+    "sort|filter|sel|cmd|menu|status|a11y|date|group|kbd|help|share|zip|refresh|acc";
   const keyLiteral = new RegExp(`["'\`]((?:${namespaces})\\.[\\w.]+)["'\`]`, "g");
   const sources = [
     ...readdirSync(path.join(ROOT, "server")).filter((f) => f.endsWith(".js")).map((f) => path.join(ROOT, "server", f)),

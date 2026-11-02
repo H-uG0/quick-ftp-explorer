@@ -2,6 +2,7 @@
  * auth.js - personal accounts, password hashing and stateless sessions.
  *
  *   hashPassword(password) / verifyPassword(password, hash)
+ *   validUsername(name)     the name as stored (lower case), or null if not allowed
  *   createUserStore(file)   list() get(name) authenticate(name, password)
  *                           add(name, password, role) setPassword(name, pw)
  *                           setRole(name, role) remove(name)
@@ -54,6 +55,11 @@ export async function verifyPassword(password, hash) {
 
 function normalizeName(name) {
   return String(name ?? "").trim().toLowerCase();
+}
+
+export function validUsername(name) {
+  const n = normalizeName(name);
+  return USERNAME_RE.test(n) ? n : null;
 }
 
 function validName(name) {

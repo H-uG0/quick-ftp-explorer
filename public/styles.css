@@ -1006,6 +1006,43 @@ dialog::backdrop { background: oklch(0.2 0.03 245 / 0.45); }
 .help-open { display: inline-flex; gap: 4px; align-items: center; }
 .help-open .icon { width: 14px; height: 14px; flex-basis: 14px; }
 
+/* The admins' accounts dialog. */
+.accounts { width: 640px; }
+.acc-intro { margin: -6px 0 12px; }
+.acc-notice {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: var(--selected);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.acc-notice p { margin: 0 0 4px; }
+.acc-notice p:last-child { margin-bottom: 0; }
+.acc-password-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acc-password { padding: 2px 6px; font-size: var(--fs-md); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); user-select: all; }
+.acc-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.acc-caption { caption-side: top; text-align: left; padding: 0 0 6px; color: var(--muted); }
+.acc-table th, .acc-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border-soft); }
+.acc-table th { color: var(--text-soft); }
+.acc-name { font-weight: 600; overflow-wrap: anywhere; }
+.acc-name .muted { font-weight: 400; }
+.acc-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.acc-role, .acc-form select {
+  min-height: 30px;
+  padding: 3px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+}
+.acc-delete:not(:disabled) { color: var(--danger); }
+.acc-form { margin-top: 18px; padding-top: 4px; border-top: 1px solid var(--border); }
+.acc-form h4 { margin: 12px 0 10px; font-size: var(--fs-md); }
+.acc-form .field-row .field:last-child { flex: 0 0 170px; }
+.acc-form select { width: 100%; min-height: 36px; }
+.acc-form .field > .btn-secondary { margin-top: 6px; }
+
 .link-field {
   width: 100%;
   box-sizing: border-box;
@@ -1383,6 +1420,15 @@ audio.viewer-media {
   .viewer-close { min-width: 48px; }
   .viewer-autoplay { display: none; }   /* a desk tool: reviewing clips one after another */
   .help-key { white-space: normal; }
+  /* Accounts: one block per account, the buttons under the name and role. */
+  .acc-table thead { display: none; }
+  .acc-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+  .acc-table td { padding: 0; border: 0; }
+  .acc-table .acc-actions-cell { grid-column: 1 / -1; }
+  .acc-actions { justify-content: flex-start; }
+  .acc-actions button, .acc-role { min-height: 40px; }
+  .acc-form .field-row { flex-direction: column; gap: 0; }
+  .acc-form .field-row .field:last-child { flex: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

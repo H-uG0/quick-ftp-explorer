@@ -201,6 +201,10 @@ are read fine; unreadable files are skipped with a warning.
 | `POST /api/shortcuts` | admin | 201 `{ id }` |
 | `PUT /api/shortcuts/:id` | admin | `{ id }` (the new id after a rename) |
 | `DELETE /api/shortcuts/:id` | admin | 204 |
+| `GET /api/users` | admin | `{ users: [{ name, role }] }` |
+| `POST /api/users` with `{ name, role, password }` | admin | `201 { name, role }`; 400 (name, password, role), 409 (exists) |
+| `PUT /api/users/:name` with `{ role?, password? }` | admin | `{ name, role }`; 400 for your own admin role; a new password ends that account's sessions (yours gets a new cookie) |
+| `DELETE /api/users/:name` | admin | 204; 400 for your own account |
 
 `GET /api/me` returns `{ username, role }`, plus, for admins only, the
 `defaults: { host, port }` that prefill the "New site" form
@@ -481,6 +485,7 @@ a browser; DOM modules draw it.
 | `js/clips.js` | The camera and the recording time in a clip's name. Pure, unit-tested, shared with the server | (none) |
 | `js/toolbar.js` | The command bar: Ouvrir, Télécharger, Copier le lien, Trier and the filters; on phones, the filter sheet and its chips | (none) |
 | `js/menu.js` | The right-click menus, for the mouse and the keyboard | the admin-only menu in `app.js` |
+| `js/accounts.js` | The admins' Accounts dialog: roles, new passwords (suggested, shown once), deletion, new accounts, through `/api/users` | (none: the CLI only) |
 | `js/keys.js` | Page-wide shortcuts, the Esc layers, the screen-reader announcer, and the `SHORTCUTS` table that the help and the manuals list | (none) |
 | `js/prefs.js` | The four choices this browser remembers, in `localStorage`. Unit-tested | (none) |
 | `js/viewer.js` | The viewer, a modal `<dialog>` that steps through a list: images (zoom / pan), video and audio, chained playback | `viewer.js` (images only) |
@@ -864,6 +869,8 @@ events, each with time, user and client IP:
 - `login`, `login_failed`, `login_blocked`, `logout`;
 - `shortcut_create`, `shortcut_update` (with `renamedTo` after a rename),
   `shortcut_delete`, each with the shortcut `id`;
+- `user_create` (`account`, `role`), `user_update` (`account`, and `role` or
+  `password: true`), `user_delete` (`account`): the admins' Accounts dialog;
 - `list` (shortcut `id` and `path`), `file` (`id`, `path`, and
   `download: true` for forced downloads) and `play` (`id`, `path`: a video
   opened through `/play`). A file is logged once per opening: ranged

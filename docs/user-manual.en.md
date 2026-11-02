@@ -638,6 +638,32 @@ panel; from the keyboard, press `Shift+F10` on the site.
 In the same menu, choose **Delete site**, then confirm. Everyone loses
 access to it at once.
 
+### 8.4 Accounts
+
+**Accounts** in the status bar (at the foot of the ☰ panel on a phone)
+lists who can sign in, with their role:
+
+- **User**: browses the sites and opens their files.
+- **Administrator**: also manages the sites and the accounts.
+
+To add someone, fill in **New account** at the bottom: a **Username**
+(letters, digits, `.`, `_` or `-`; it is stored in lower case), a
+**Role**, and a **Password**. A strong one is suggested; **Suggest
+another** changes it. After **Create the account**, the password is shown
+once, with **Copy**: pass it on to the person, it won't be shown again.
+
+On each row:
+
+- **Role** changes at once.
+- **New password** gives the account a fresh password, shown once the
+  same way; the old one stops working and the person is signed out.
+- **Delete** removes the account after a confirmation; the person is
+  signed out at once.
+
+You can't delete your own account or remove your own administrator role,
+so there is always an administrator left: another administrator can do
+it. Every change is written to the audit trail, with who made it.
+
 ---
 
 ## 9. Keyboard shortcuts
@@ -772,7 +798,8 @@ clip in the viewer. They need their own account to open it.
 No. Quick FTP Explorer is read-only by design.
 
 **How do I change my password, or get an account for a colleague?**
-Ask an administrator.
+Ask an administrator: they do it under **Accounts**
+([§8.4](#84-accounts)).
 
 **Why can't I see the FTP server's address?**
 Only administrators need it. Everyone else just sees the site labels.

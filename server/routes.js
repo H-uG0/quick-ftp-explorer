@@ -10,6 +10,7 @@
  * API:    GET /api/me
  *         GET /api/shortcuts                     (admins also see host, port, username)
  *         POST /api/shortcuts  PUT|DELETE /api/shortcuts/:id   (admins only)
+ *         GET /api/users  POST /api/users  PUT|DELETE /api/users/:name   (admins only)
  *         GET /api/shortcuts/:id/list?path=[&auto=1]   folder listing (auto: the page's own check)
  *         GET|HEAD /api/shortcuts/:id/file?path=[&download=1]   file stream (Range)
  *         GET|HEAD /api/shortcuts/:id/play?path=   a video as an MP4 the browser can play (Range)
@@ -28,7 +29,9 @@ import {
   createHandler, loadStatic, sendFile, sendJson, readJson, readForm, redirect, serializeCookie, parseCookies,
   requestLanguage,
 } from "./http.js";
-import { createUserStore, createSessions, createLimiter, loadSessionSecret } from "./auth.js";
+import {
+  createUserStore, createSessions, createLimiter, loadSessionSecret, validUsername, MIN_PASSWORD_LENGTH, ROLES,
+} from "./auth.js";
 import { createShortcutStore } from "./store.js";
 import { createGateway, parseRemotePath, contentDisposition } from "./ftp.js";
 import { createConverter, sendVideo } from "./video.js";
@@ -44,6 +47,7 @@ const LIST_PATH = new RegExp(`^/api/shortcuts/${ID}/list$`);
 const FILE_PATH = new RegExp(`^/api/shortcuts/${ID}/file$`);
 const PLAY_PATH = new RegExp(`^/api/shortcuts/${ID}/play$`);
 const ZIP_PATH = new RegExp(`^/api/shortcuts/${ID}/zip$`);
+const USER_PATH = /^\/api\/users\/(?<name>[A-Za-z0-9][A-Za-z0-9._-]{0,63})$/;
 const ZIP_LINK = /^\/api\/zip\/(?<token>[A-Za-z0-9_-]+)$/;
 
 const ZIP_DEFAULTS = {
@@ -202,6 +206,77 @@ export async function createApp(cfg, { log, ftp, video, zip } = {}) {
     ctx.res.end();
   }
 
+  /* ---- accounts (admins) ---- */
+
+  // The same rules as the CLI, with messages in the reader's language.
+  function checkedPassword(password) {
+    if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
+      throw new HttpError(400, msg("err.passwordShort", { min: MIN_PASSWORD_LENGTH }));
+    }
+    if (password.length > 256) throw new HttpError(400, msg("err.passwordTooLong"));
+    return password;
+  }
+  function checkedRole(role) {
+    if (!ROLES.includes(role)) throw new HttpError(400, msg("err.role"));
+    return role;
+  }
+  async function requireUser(name) {
+    const user = await users.get(name);
+    if (!user) throw new HttpError(404, msg("err.noUser"));
+    return user;
+  }
+
+  async function listUsers() {
+    return { users: await users.list() };
+  }
+
+  async function createUser(ctx) {
+    const body = await readJson(ctx.req);
+    const name = validUsername(body.name);
+    if (!name) throw new HttpError(400, msg("err.userName"));
+    const role = checkedRole(body.role ?? "user");
+    const password = checkedPassword(body.password);
+    if (await users.get(name)) throw new HttpError(409, msg("err.userExists", { name }));
+    await users.add(name, password, role);
+    audit("user_create", { user: ctx.user.name, ip: ctx.ip, account: name, role });
+    sendJson(ctx.res, 201, { name, role });
+  }
+
+  // A new role or a new password. Nobody may take away their own admin
+  // role, so there is always an admin left. A new password ends the
+  // account's sessions; an admin changing their own keeps this one.
+  async function updateUser(ctx) {
+    const target = await requireUser(ctx.params.name);
+    const body = await readJson(ctx.req);
+    const self = target.name === ctx.user.name;
+    const changes = {};
+    if (body.role !== undefined) {
+      const role = checkedRole(body.role);
+      if (self && role !== "admin") throw new HttpError(400, msg("err.userSelfRole"));
+      if (role !== target.role) changes.role = role;
+    }
+    if (body.password !== undefined) changes.password = checkedPassword(body.password);
+    if (changes.role) await users.setRole(target.name, changes.role);
+    if (changes.password) {
+      await users.setPassword(target.name, changes.password);
+      if (self) setSessionCookie(ctx, sessions.issue(await users.get(target.name)), sessions.ttlSeconds);
+    }
+    audit("user_update", {
+      user: ctx.user.name, ip: ctx.ip, account: target.name,
+      ...(changes.role && { role: changes.role }), ...(changes.password && { password: true }),
+    });
+    return { name: target.name, role: changes.role ?? target.role };
+  }
+
+  async function deleteUser(ctx) {
+    const target = await requireUser(ctx.params.name);
+    if (target.name === ctx.user.name) throw new HttpError(400, msg("err.userSelf"));
+    await users.remove(target.name);
+    audit("user_delete", { user: ctx.user.name, ip: ctx.ip, account: target.name });
+    ctx.res.writeHead(204, { "Cache-Control": "no-store" });
+    ctx.res.end();
+  }
+
   async function requireShortcut(id) {
     const sc = await shortcuts.get(id);
     if (!sc) throw new HttpError(404, msg("err.noShortcut"));
@@ -338,6 +413,10 @@ export async function createApp(cfg, { log, ftp, video, zip } = {}) {
     { method: "POST", path: /^\/logout$/, auth: "none", handler: logout },
     { method: "GET", path: /^\/api\/me$/, auth: "user", handler: me },
     { method: "GET", path: /^\/api\/shortcuts$/, auth: "user", handler: listShortcuts },
+    { method: "GET", path: /^\/api\/users$/, auth: "admin", handler: listUsers },
+    { method: "POST", path: /^\/api\/users$/, auth: "admin", handler: createUser },
+    { method: "PUT", path: USER_PATH, auth: "admin", handler: updateUser },
+    { method: "DELETE", path: USER_PATH, auth: "admin", handler: deleteUser },
     { method: "POST", path: /^\/api\/shortcuts$/, auth: "admin", handler: createShortcut },
     { method: "PUT", path: SHORTCUT_PATH, auth: "admin", handler: updateShortcut },
     { method: "DELETE", path: SHORTCUT_PATH, auth: "admin", handler: deleteShortcut },

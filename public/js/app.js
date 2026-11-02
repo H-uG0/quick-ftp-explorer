@@ -26,6 +26,7 @@ import { tree, el } from "./ui.js";
 import { grid } from "./grid.js";
 import { toolbar } from "./toolbar.js";
 import { viewer } from "./viewer.js";
+import { accounts } from "./accounts.js";
 import { openMenu } from "./menu.js";
 import { layers, onShortcut, announce, isTypingTarget, SHORTCUTS } from "./keys.js";
 import { prefs } from "./prefs.js";
@@ -1586,6 +1587,15 @@ try {
   me = await api.me();
   status.user.textContent = t(isAdmin() ? "auth.signedInAsAdmin" : "auth.signedInAs", { name: me.username });
   newBtn.hidden = !isAdmin();
+  // Admins manage the accounts from the status bar (the drawer on phones).
+  $("accounts-open").hidden = !isAdmin();
+  if (isAdmin()) {
+    $("accounts-open").prepend(icon("site"));
+    $("accounts-open").addEventListener("click", () => {
+      if (narrow.matches) setDrawer(false);
+      accounts.open(me.username);
+    });
+  }
   tree.init(listEl, {
     onSelect,
     onHome: () => goHome(),

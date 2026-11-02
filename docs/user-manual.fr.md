@@ -708,6 +708,35 @@ sur `Maj+F10` sur le site.
 Dans le même menu, choisissez **Supprimer le site**, puis confirmez. Tout
 le monde en perd l'accès immédiatement.
 
+### 8.4 Comptes
+
+**Comptes**, dans la barre d'état (en bas du panneau ☰ sur un téléphone),
+liste qui peut se connecter, avec son rôle :
+
+- **Utilisateur** : parcourt les sites et ouvre leurs fichiers.
+- **Administrateur** : gère aussi les sites et les comptes.
+
+Pour ajouter quelqu'un, remplissez **Nouveau compte** en bas : un
+**Identifiant** (lettres, chiffres, `.`, `_` ou `-` ; il est
+enregistré en minuscules), un **Rôle** et un **Mot de passe**. Un mot de
+passe solide est proposé ; **En proposer un autre** le change. Après
+**Créer le compte**, le mot de passe s'affiche une seule fois, avec
+**Copier** : transmettez-le à la personne, il ne sera plus affiché.
+
+Sur chaque ligne :
+
+- **Rôle** change aussitôt.
+- **Nouveau mot de passe** donne au compte un nouveau mot de passe, affiché
+  une fois de la même façon ; l'ancien ne fonctionne plus et la personne
+  est déconnectée.
+- **Supprimer** retire le compte après confirmation ; la personne est
+  déconnectée aussitôt.
+
+Vous ne pouvez ni supprimer votre propre compte ni retirer votre propre
+rôle d'administrateur : il reste ainsi toujours un administrateur, et un
+autre administrateur peut le faire. Chaque modification est inscrite au
+journal d'audit, avec son auteur.
+
 ---
 
 ## 9. Raccourcis clavier
@@ -856,7 +885,8 @@ pour l'ouvrir.
 Non. Quick FTP Explorer est volontairement en lecture seule.
 
 **Comment changer mon mot de passe, ou obtenir un compte pour un collègue ?**
-Demandez à un administrateur.
+Demandez à un administrateur : il s'en charge dans **Comptes**
+([§ 8.4](#84-comptes)).
 
 **Pourquoi ne vois-je pas l'adresse du serveur FTP ?**
 Seuls les administrateurs en ont besoin. Les autres utilisateurs ne voient
