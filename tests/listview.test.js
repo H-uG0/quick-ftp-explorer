@@ -8,7 +8,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   describeEntry, columnsFor, sortRows, sortFor, sortId, SORTS, periodRange, applyFilters, facets, activeFilters,
-  newestTime, playlist, groupByDay, diffListing, NO_FILTERS, PERIODS,
+  newestTime, playlist, groupByDay, diffListing, nameKey, NO_FILTERS, PERIODS,
 } from "../public/js/listview.js";
 
 const local = (...parts) => new Date(...parts).getTime();
@@ -107,6 +107,18 @@ describe("sortRows", () => {
     sortRows(list, sortFor("sizeAsc"));
     assert.deepEqual(names(list), before);
   });
+});
+
+test("name keys sort like the collator: natural, no case, no accents", () => {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const names = ["clip 10.avi", "Clip 2.avi", "clip 2.avi", "Été 1", "ete 2", "1234_Cam 10_202611011558.avi",
+    "1234_Cam 2_202611011558.avi", "1234_Cam 2_202611011601.avi", "2026", "Archives", "a-b", "a b", "a_b", "ab",
+    "x007", "x7", "x10", "rapport.pdf", "Rapport final.pdf", "12345678_02_1793345412.mp4"];
+  const byKey = [...names].sort((a, b) => {
+    const ka = nameKey(a), kb = nameKey(b);
+    return ka < kb ? -1 : ka > kb ? 1 : collator.compare(a, b);
+  });
+  assert.deepEqual(byKey, [...names].sort(collator.compare));
 });
 
 describe("periods", () => {

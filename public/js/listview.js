@@ -45,6 +45,7 @@ export function describeEntry(entry, { sc, parent }) {
     path,
     entry,
     name: entry.name,
+    nameKey: nameKey(entry.name),
     isDir: !!entry.isDir,
     kind: kindFor(entry.name, entry.isDir),
     camera: clip?.camera ?? "",
@@ -84,7 +85,19 @@ export const FIRST_DIR = { name: "asc", camera: "asc", date: "desc", size: "desc
 export const sortFor = (id) => SORTS.find((s) => s.id === id) ?? null;
 export const sortId = ({ key, dir }) => SORTS.find((s) => s.key === key && s.dir === dir)?.id ?? DEFAULT_SORT.id;
 
-const byName = (a, b) => collator.compare(a.name, b.name);
+// A key that sorts names the way the collator does: no case, no accents,
+// numbers by value ("clip 2" before "clip 10"), punctuation before digits
+// and letters. Comparing keys is far quicker than asking the collator
+// thousands of times; it only settles names whose keys are equal.
+export function nameKey(name) {
+  return String(name).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "!")
+    .replace(/\d+/g, (d) => d.replace(/^0+(?=\d)/, "").padStart(16, "0"));
+}
+const byName = (a, b) => {
+  const ka = (a.nameKey ??= nameKey(a.name)), kb = (b.nameKey ??= nameKey(b.name));
+  return ka < kb ? -1 : ka > kb ? 1 : collator.compare(a.name, b.name);
+};
 const nulls = (a, b) => (a === null) - (b === null);   // rows without a value go last, both ways
 
 export function sortRows(rows, { key, dir } = DEFAULT_SORT) {

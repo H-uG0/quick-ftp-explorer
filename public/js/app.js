@@ -295,6 +295,9 @@ function renderView() {
   if (pendingSelect && rows.some((r) => r.key === pendingSelect)) {
     grid.focus(pendingSelect);
     pendingSelect = null;
+  } else if (focusList && rows.length) {
+    focusList = false;
+    grid.focus(grid.focusedRow()?.key ?? rows[0].key);
   }
   if (restoring && loaded) {
     const back = restoring;
@@ -476,7 +479,7 @@ async function onSelect(target) {
   // Forward, a pasted link, the page loading).
   const hash = formatHash(target.shortcut.id, target.path);
   if (location.hash !== hash) pushEntry(hash);
-  if (narrow.matches) setDrawer(false);
+  if (narrow.matches) setDrawer(false, { toList: true });
   renderBreadcrumb();
   refreshBtn.disabled = false;
   updateNavButtons();
@@ -530,7 +533,7 @@ function goHome({ push = true } = {}) {
   setTitle();
   renderBreadcrumb();
   grid.hold();
-  if (narrow.matches) setDrawer(false);
+  if (narrow.matches) setDrawer(false, { toList: true });
   renderView();
 }
 
@@ -1395,7 +1398,10 @@ splitter.addEventListener("keydown", (e) => {
 /* ---- narrow screens: the sites pane as a drawer ---- */
 
 const scrim = $("scrim");
-function setDrawer(open, { refocus = false } = {}) {
+// toList: something was chosen in the drawer; the focus goes to the list as
+// soon as its rows show (the folder may still be loading).
+let focusList = false;
+function setDrawer(open, { refocus = false, toList = false } = {}) {
   if (appEl.classList.contains("drawer-open") === open) return;
   appEl.classList.toggle("drawer-open", open);
   menuBtn.setAttribute("aria-expanded", String(open));
@@ -1407,7 +1413,8 @@ function setDrawer(open, { refocus = false } = {}) {
     tree.focus();
   } else {
     layers.remove("drawer");
-    if (refocus || leftPane.contains(document.activeElement) || document.activeElement === document.body) menuBtn.focus();
+    if (toList && leftPane.contains(document.activeElement)) focusList = true;
+    else if (refocus || leftPane.contains(document.activeElement) || document.activeElement === document.body) menuBtn.focus();
   }
 }
 menuBtn.addEventListener("click", (e) => {

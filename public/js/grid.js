@@ -92,30 +92,51 @@ const cell = (className, text) => {
   return node;
 };
 
-function buildRow(row) {
-  const tr = el("div", `grid-row entry-row ${row.kind}`);
+// A row's empty shape for this render's columns, built once and cloned for
+// every row: thousands of rows are drawn at once.
+let skeleton = null;
+function makeSkeleton() {
+  const tr = el("div", "grid-row entry-row");
   tr.setAttribute("role", "row");
-  tr.dataset.key = row.key;
   tr.tabIndex = -1;
-  tr.setAttribute("aria-selected", latest.selected.has(row.key) ? "true" : "false");
-  if (latest.selected.has(row.key)) {
-    tr.classList.add("selected");
-    shown.add(row.key);
-  }
-  const file = !row.isDir;
-
+  tr.setAttribute("aria-selected", "false");
   if (model.checkboxes) {
     const check = cell("col-check");
-    if (file) check.append(el("span", "check"));
+    check.append(el("span", "check"));
     tr.append(check);
   }
   const name = cell("col-name");
+  name.append(el("span", "file-icon"), el("span", "file-name"));
+  tr.append(name);
+  for (const column of model.columns) if (column !== "name") tr.append(cell(`col-${column}`));
+  return tr;
+}
+
+function buildRow(row) {
+  const tr = skeleton.cloneNode(true);
+  tr.classList.add(row.kind);
+  tr.dataset.key = row.key;
+  if (latest.selected.has(row.key)) {
+    tr.classList.add("selected");
+    tr.setAttribute("aria-selected", "true");
+    shown.add(row.key);
+  }
+  const cells = tr.children;
+  let at = 0;
+  if (model.checkboxes) {
+    if (row.isDir) cells[0].firstChild.remove();   // folders and sites have no box
+    at++;
+  }
+  const name = cells[at++];
   name.title = model.places.has(row.key) ? `${row.name}\n${model.places.get(row.key)}` : row.name;
-  const iconEl = el("span", "file-icon");
-  iconEl.append(icon(row.kind));
-  name.append(iconEl);
-  if (row.isDir) name.append(el("span", "sr-only", t(row.kind === "site" ? "a11y.site" : "a11y.folder")));
-  name.append(nameNode(row.name, model.marks.get(row.key)));
+  const iconEl = name.firstChild;
+  // Files get a CSS-drawn icon; folders and sites, two-coloured, an SVG.
+  if (row.isDir) iconEl.append(icon(row.kind));
+  else iconEl.classList.add(`i-${row.kind}`);
+  const ranges = model.marks.get(row.key);
+  if (ranges) name.replaceChild(nameNode(row.name, ranges), name.children[1]);
+  else name.children[1].textContent = row.name;
+  if (row.isDir) name.insertBefore(el("span", "sr-only", t(row.kind === "site" ? "a11y.site" : "a11y.folder")), name.children[1]);
   if (model.fresh?.has(row.key)) name.append(el("span", "tag-new", t("refresh.tag")));
   if (model.places.has(row.key)) name.append(el("span", "result-location", model.places.get(row.key)));
   // Phones show one line under the name instead of the other columns; under
@@ -123,18 +144,16 @@ function buildRow(row) {
   const when = row.isDir ? "" : model.groups && row.time !== null && row.precision !== "day" ? dateText(row).slice(11) : dateText(row);
   const meta = [when, row.camera, sizeText(row)].filter(Boolean).join(" · ");
   if (meta) name.append(el("span", "row-meta", meta));
-  tr.append(name);
 
   for (const column of model.columns) {
     if (column === "name") continue;
-    const td = cell(`col-${column}`);
+    const td = cells[at++];
     if (column === "camera") td.textContent = row.camera;
     else if (column === "size") td.textContent = sizeText(row);
     else if (column === "date" && row.kind !== "site") {
       td.textContent = dateText(row);
       if (row.time === null) td.classList.add("muted");
     }
-    tr.append(td);
   }
   return tr;
 }
@@ -215,6 +234,7 @@ function render(target, nextModel, nextCallbacks) {
   tableEl.classList.toggle("c-home", model.mode === "home");
   tableEl.classList.toggle("selecting", !!model.selecting);
   tableEl.append(buildHead());
+  skeleton = makeSkeleton();
   // One row group per day heading; the headings take no focus, and the keys
   // and range selection go by `order`, which skips them.
   const span = model.columns.length + (model.checkboxes ? 1 : 0);

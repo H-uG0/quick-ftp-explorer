@@ -250,7 +250,7 @@ function renderMedia(kind, url, fallbackUrl) {
     if (media.getAttribute("src") === src) showProblem(message);   // unless the viewer moved on
   });
   media.addEventListener("ended", () => {
-    if (!chainBox.checked || at >= list.length - 1) return;
+    if (chain.hidden || !chainBox.checked || at >= list.length - 1) return;   // videos only
     const next = options.describe(list[at + 1]);
     announce(t("viewer.autoplayNext", { caption: next.caption || next.name }));
     chainTimer = setTimeout(() => step(1), 1000);

@@ -430,7 +430,8 @@ export function createGateway(options = {}) {
       },
     });
 
-    progress();
+    // The stall clock starts with the first byte: until then, a slow server
+    // is basic-ftp's timeout to judge, not a browser that stopped reading.
     try {
       await client.downloadTo(sink, name, start);
     } catch (err) {
