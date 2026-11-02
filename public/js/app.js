@@ -1,27 +1,44 @@
 /*
- * app.js - orchestration and event wiring for the explorer page.
+ * app.js - the explorer page: state, views and event wiring.
  *
- * Selecting a folder in the tree (or a breadcrumb segment, or a folder row
- * on the right) shows its files on the right. Clicking a file opens it by
- * kind: images, video and audio in the in-app viewer; PDF and text in a new
- * tab; everything else downloads. The search box finds files and folders
- * in the open folder and all its subfolders, or in every site. Admins also
- * manage shortcuts here: "+ New" in the left pane, or right-click a
- * shortcut for Edit / Delete.
+ * Three views share the right pane's list (grid.js): "Tous les sites" (no
+ * folder open), a folder, and search results. Each goes through the same
+ * pipeline: rows (listview.describeEntry), the filters, the sort, the
+ * 500-row cap for searches, then the grid. The selection, the sort and the
+ * filters live here, so redraws keep them.
  *
- * The open folder lives in the URL fragment ("#/<id>/<path>"): links can be
- * bookmarked or shared, and Back / Forward move between folders. On narrow
- * screens the left pane becomes a drawer behind the menu button.
+ * A click selects and a double-click (or Enter, or a tap) opens: a folder
+ * opens on the right, a video, image or audio file in the viewer, which
+ * steps through the list; PDF and text open in a new tab; everything else
+ * downloads. The command bar, the right-click menus and the keyboard reach
+ * the same commands. Admins manage sites here too.
+ *
+ * The open folder lives in the URL fragment ("#/<id>/<path>"; "#/" is
+ * Tous les sites), so links can be bookmarked or shared and Back / Forward
+ * move between folders. The viewer adds a history entry of its own, so
+ * Back closes it. On narrow screens the sites pane becomes a drawer.
  */
 
 import * as api from "./api.js";
-import { tree, files, el } from "./ui.js";
+import { tree, el } from "./ui.js";
+import { grid } from "./grid.js";
+import { toolbar } from "./toolbar.js";
 import { viewer } from "./viewer.js";
+import { openMenu } from "./menu.js";
+import { layers, onShortcut, announce, isTypingTarget } from "./keys.js";
+import { prefs } from "./prefs.js";
+import * as sel from "./selection.js";
 import { kindFor, inlineType } from "./filetypes.js";
 import { scan, LIMITS } from "./search.js";
-import { useLanguage, browserLanguage, translatePage, switchLanguage, t, tn } from "./i18n.js";
 import {
-  splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchFolded, matchName, compareEntries,
+  describeEntry, columnsFor, sortRows, sortFor, sortId, DEFAULT_SORT, FIRST_DIR, applyFilters, facets, activeFilters,
+  newestTime, playlist, NO_FILTERS, viewable,
+} from "./listview.js";
+import {
+  useLanguage, browserLanguage, translatePage, switchLanguage, t, tn, language, formatSize, formatDateTime,
+} from "./i18n.js";
+import {
+  splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchFolded, matchName, parentPath,
 } from "./util.js";
 
 const $ = (id) => document.getElementById(id);
@@ -32,12 +49,20 @@ const listEl = $("shortcut-list");
 const emptyHint = $("empty-hint");
 const leftPane = $("left-pane");
 const splitter = $("splitter");
-const rightPane = $("file-list");
+const mainEl = $("right-pane");
+const fileList = $("file-list");
 const breadcrumb = $("breadcrumb");
 const refreshBtn = $("refresh");
 const searchInput = $("search");
-const statusInfo = $("status-info");
-const statusUser = $("status-user");
+const searchClear = $("search-clear");
+const resultsHeader = $("results-header");
+const notice = $("notice");
+const viewTitle = $("view-title");
+const statusBar = document.querySelector(".statusbar");
+const status = {
+  count: $("status-count"), selection: $("status-selection"), updated: $("status-updated"), hint: $("status-hint"),
+  user: $("status-user"),
+};
 const newBtn = $("new-shortcut");
 
 // The page's language first, so nothing is ever drawn in the wrong one.
@@ -48,12 +73,25 @@ langSwitch.textContent = t("lang.switch");
 langSwitch.lang = t("lang.switchCode");
 langSwitch.addEventListener("click", () => switchLanguage(t("lang.switchCode")));
 
+/* ---- state ---- */
+
 let me = null;
 let shortcuts = [];
-let current = null;    // { shortcut, path } shown on the right
-let rightView = null;  // the open folder's view (see files.render), kept while searching
-let searching = null;  // { key, progress } while the search box holds text
-let viewSeq = 0;       // ignore listings that arrive after the selection moved on
+let current = null;          // { shortcut, path }, or null on Tous les sites
+let searching = null;        // { key, progress } while the search box holds text
+let filters = { ...NO_FILTERS };
+let sort = sortFor(prefs.get("sort")) ?? DEFAULT_SORT;
+let homeSort = { key: "name", dir: "asc" };   // Tous les sites: by name, not saved
+let selection = sel.EMPTY;
+let shownRows = [];          // the rows on screen, in order
+let viewSeq = 0;             // ignore listings that arrive after the view moved on
+let listError = null;        // the open folder's listing failed
+let pendingSelect = null;    // a key to select once its folder shows (Ouvrir l'emplacement)
+let viewId = "";
+
+const isAdmin = () => me?.role === "admin";
+const viewName = () => (searching ? "search" : current ? "folder" : "home");
+const placeParts = () => [current.shortcut.label, ...current.path.split("/").filter(Boolean)];
 
 /* ---- spinner (ref-counted, shown only for operations that take a while) ---- */
 
@@ -74,140 +112,435 @@ async function busy(label, work) {
   }
 }
 
-/* ---- shortcuts ---- */
-
-function isAdmin() {
-  return me?.role === "admin";
+let toastTimer = 0;
+function toast(text) {
+  const box = $("toast");
+  box.textContent = text;
+  box.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { box.hidden = true; }, 8000);
 }
+
+/* ---- sites ---- */
 
 async function loadShortcuts() {
   shortcuts = await api.shortcuts();
   tree.setShortcuts(shortcuts);
   emptyHint.textContent = t(isAdmin() ? "tree.emptyAdmin" : "tree.emptyUser");
   emptyHint.hidden = shortcuts.length > 0;
-  statusInfo.textContent = tn("count.sites", shortcuts.length);
   if (searching && !current) restartSearch();   // the sites searched have changed
+  else if (!current) renderView();
 }
 
-/* ---- right pane ---- */
+const siteRow = (sc, ranges) => ({
+  key: `${sc.id}::/`, sc, parent: null, path: "/", entry: null, name: sc.label, isDir: true, kind: "site",
+  camera: "", time: null, precision: null, timeSource: null, modifiedMs: null, modifiedPrecision: null, size: 0, ranges,
+});
 
-// While a search is on, the folder's view is only remembered, for when the
-// search box is cleared.
-function renderRight(view) {
-  rightView = view;
-  if (searching) return;
-  files.render(rightPane, current && { ...view, path: current.path }, {
-    onNavigate: (path) => tree.reveal(current.shortcut, path),
-    onOpen: (entry, path) => openFile(current.shortcut, entry, path),
-    onRetry: () => onSelect(current),
-  });
+/* ---- the list ---- */
+
+function emptyNode(text, className = "placeholder muted") {
+  return el("p", className, text);
 }
 
-function renderBreadcrumb(sel) {
-  if (!sel) {
-    breadcrumb.replaceChildren(el("span", "bc-segment muted", t("nav.pick")));
-    return;
-  }
-  const segment = (text, path) => {
-    const s = el("span", "bc-segment", text);
-    if (path !== null) {
-      s.classList.add("clickable");
-      s.addEventListener("click", () => tree.reveal(sel.shortcut, path));
+function errorNode(err, retry) {
+  const p = el("p", "placeholder placeholder-error", err.message + " ");
+  const button = el("button", "btn-secondary btn-sm", t("common.retry"));
+  button.type = "button";
+  button.addEventListener("click", retry);
+  p.append(button);
+  return p;
+}
+
+// When the filters hide every file: say so, offer to clear them, and say
+// how recent the newest file is (the usual reason: a period too short).
+function filteredOutNode(all) {
+  const box = el("div", "placeholder filtered-out");
+  box.append(el("p", "", t("filter.none")));
+  const clear = el("button", "btn-secondary btn-sm", t("filter.clear"));
+  clear.type = "button";
+  clear.addEventListener("click", () => setFilters({ ...NO_FILTERS }));
+  box.append(clear);
+  const newest = newestTime(all);
+  if (newest) box.append(el("p", "muted", t("filter.newest", { date: formatDateTime(newest.ms, newest.precision === "second" ? "minute" : newest.precision) })));
+  return box;
+}
+
+const gridCallbacks = {
+  selection: () => selection,
+  select(state) {
+    selection = state;
+    grid.update(state);
+    updateChrome();
+    if (state.selected.size === 1 && !prefs.get("hintDone") && !narrow.matches) status.hint.textContent = t("sel.hint");
+  },
+  open(row) {
+    if (!prefs.get("hintDone")) {
+      prefs.set("hintDone", true);
+      status.hint.textContent = "";
     }
-    return s;
-  };
-  const parts = sel.path.split("/").filter(Boolean);
-  const nodes = [segment(sel.shortcut.label, parts.length ? "/" : null)];
-  let path = "";
-  parts.forEach((part, i) => {
-    path += "/" + part;
-    nodes.push(el("span", "bc-separator", "›"), segment(part, i < parts.length - 1 ? path : null));
-  });
-  breadcrumb.replaceChildren(...nodes);
+    openRow(row);
+  },
+  sort(key) {
+    if (viewName() === "home") {
+      homeSort = { key, dir: homeSort.key === key && homeSort.dir === "asc" ? "desc" : "asc" };
+      renderView();
+      return;
+    }
+    const dir = sort.key === key ? (sort.dir === "asc" ? "desc" : "asc") : FIRST_DIR[key];
+    setSort(sortId({ key, dir }));
+  },
+  middle(row) {
+    openInNewTab(row);
+  },
+  escape() {
+    if (!searchInput.value) return false;
+    clearSearch();
+    renderView();
+    return true;
+  },
+};
+
+function setSort(id) {
+  sort = sortFor(id) ?? DEFAULT_SORT;
+  prefs.set("sort", sort.id);
+  renderView();
+  announce(t("sort.announce", { order: t(`sort.${sort.id}`).toLowerCase() }));
 }
 
-async function onSelect(sel) {
-  clearSearch();   // as in File Explorer, going somewhere ends the search
-  current = sel;
+function setFilters(next, { quiet = false } = {}) {
+  filters = { ...next };
+  renderView();
+  if (!quiet) announce(status.count.textContent);
+}
+
+// The rows of the current view, before filters: { rows, sites, marks, places, label, mode, empty }.
+function viewRows() {
+  if (searching) return searchRows();
+  if (!current) {
+    return {
+      mode: "home", label: t("a11y.gridLabel", { place: t("nav.home") }),
+      rows: shortcuts.map((sc) => siteRow(sc)), empty: emptyNode(t(isAdmin() ? "tree.emptyAdmin" : "tree.emptyUser")),
+    };
+  }
+  const { shortcut: sc, path } = current;
+  const label = t("a11y.gridLabel", { place: placeParts().at(-1) });
+  const entries = tree.cached(sc, path);
+  if (!entries) {
+    return {
+      mode: "folder", label, rows: [],
+      empty: listError ? errorNode(listError, () => onSelect(current)) : emptyNode(t("common.loading")),
+    };
+  }
+  return { mode: "folder", label, rows: entries.map((entry) => describeEntry(entry, { sc, parent: path })), empty: emptyNode(t("files.empty")) };
+}
+
+function renderView() {
+  const view = viewRows();
+  const now = new Date();
+  const home = view.mode === "home";
+  const all = view.rows;
+  const columns = home ? ["name"] : columnsFor(all);
+  // A saved Caméra order on a view without cameras falls back to newest first.
+  const effective = home ? homeSort : (sort.key === "camera" && !columns.includes("camera") ? DEFAULT_SORT : sort);
+  const { shown, hidden } = home ? { shown: all, hidden: 0 } : applyFilters(all, filters, now);
+  let rows = sortRows(shown, effective);
+  let total = all.length;
+  if (view.mode === "search") {
+    total = all.length + view.sites.length;
+    view.capped = rows.length > MAX_SHOWN;
+    rows = [...view.sites, ...rows.slice(0, MAX_SHOWN)];
+  }
+  shownRows = rows;
+  selection = sel.retain(selection, rows.map((r) => r.key));
+  if (pendingSelect && rows.some((r) => r.key === pendingSelect)) {
+    selection = sel.click(sel.EMPTY, rows.map((r) => r.key), pendingSelect);
+  }
+
+  let empty = view.empty;
+  if (!rows.length && all.length && hidden) empty = filteredOutNode(all);
+  const id = `${viewName()}:${searching?.key ?? ""}:${current ? current.shortcut.id + "::" + current.path : ""}`;
+  grid.render(fileList, {
+    id, label: view.label, mode: view.mode, columns, sort: effective, rows,
+    checkboxes: !home && !narrow.matches, selecting: false,
+    marks: view.marks ?? new Map(), places: view.places ?? new Map(), empty,
+  }, gridCallbacks);
+  if (id !== viewId) {
+    viewId = id;
+    viewTitle.textContent = home ? t("nav.home") : view.mode === "search" ? t("a11y.results") : placeParts().join(" › ");
+  }
+  if (pendingSelect && rows.some((r) => r.key === pendingSelect)) {
+    grid.focus(pendingSelect);
+    pendingSelect = null;
+  }
+  if (view.mode === "search") updateResultsHeader(view);
+
+  renderState = {
+    view, columns, effective, all, shownCount: view.mode === "search" ? shown.length + view.sites.length : shown.length,
+    total, filtered: hidden > 0,
+    facets: home ? null : facets(all, filters, now),
+  };
+  updateChrome();
+}
+
+let renderState = null;
+
+// The status bar and the command bar, from the last render and the selection.
+function updateChrome() {
+  if (!renderState) return;
+  const { view, columns, effective, shownCount, total, filtered } = renderState;
+  const mode = view.mode;
+  const picked = shownRows.filter((r) => selection.selected.has(r.key));
+  const files = picked.filter((r) => !r.isDir);
+
+  if (mode === "home") status.count.textContent = tn("count.sites", shortcuts.length);
+  else if (mode === "search") status.count.textContent = filtered ? tn("count.resultsOf", shownCount, { total }) : tn("count.results", total);
+  else status.count.textContent = filtered ? tn("count.itemsOf", shownCount, { total }) : tn("count.items", total);
+
+  if (picked.length) {
+    const count = tn("count.selected", picked.length);
+    status.selection.textContent = files.length
+      ? t("status.selection", { selected: count, size: formatSize(files.reduce((s, r) => s + r.size, 0), language()) })
+      : count;
+  } else {
+    status.selection.textContent = "";
+  }
+  const loadedAt = mode === "folder" ? tree.loadedAt(current.shortcut, current.path) : null;
+  status.updated.textContent = loadedAt ? t("status.updated", { time: formatDateTime(loadedAt, "minute").slice(11) }) : "";
+  if (!picked.length) status.hint.textContent = "";
+
+  toolbar.update({
+    visible: mode !== "home",
+    columns,
+    sort: { id: sortId(effective) },
+    filters,
+    facets: renderState.facets ?? { cameras: [], cameraTotal: 0, kinds: [], kindTotal: 0 },
+    actions: { open: { enabled: picked.length === 1 || files.length >= 2 }, download: downloadState(files) },
+    counts: { shown: shownCount, total, search: mode === "search" },
+  });
+}
+
+const ZIP_MAX = 200;
+function downloadState(files) {
+  if (!files.length) return { enabled: false, count: 0 };
+  if (files.length === 1) return { enabled: true, count: 1 };
+  if (new Set(files.map((r) => r.sc.id)).size > 1) return { enabled: false, count: files.length, title: t("zip.oneSite") };
+  if (files.length > ZIP_MAX) return { enabled: false, count: files.length, title: t("zip.tooMany", { max: ZIP_MAX }) };
+  return { enabled: true, count: files.length, title: t("zip.tooltip", { n: files.length }) };
+}
+
+/* ---- navigation ---- */
+
+function renderBreadcrumb() {
+  const list = breadcrumb.querySelector("ol");
+  const item = (text, hash, last) => {
+    const li = el("li", "bc-item");
+    if (last) {
+      const span = el("span", "bc-current", text);
+      span.setAttribute("aria-current", "location");
+      li.append(span);
+    } else {
+      const a = el("a", "bc-link", text);
+      a.href = hash;
+      li.append(a);
+    }
+    return li;
+  };
+  const items = [];
+  if (!current) {
+    items.push(item(t("nav.home"), "#/", true));
+  } else {
+    items.push(item(t("nav.home"), "#/", false));
+    const parts = current.path.split("/").filter(Boolean);
+    items.push(item(current.shortcut.label, formatHash(current.shortcut.id, "/"), parts.length === 0));
+    let path = "";
+    parts.forEach((part, i) => {
+      path += "/" + part;
+      items.push(item(part, formatHash(current.shortcut.id, path), i === parts.length - 1));
+    });
+  }
+  list.replaceChildren(...items);
+}
+
+// A plain left click on a breadcrumb link is handled here, like any other
+// move; Ctrl+click, a middle click and "copy link" work as on any link.
+breadcrumb.addEventListener("click", (e) => {
+  const a = e.target.closest("a.bc-link");
+  if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+  e.preventDefault();
+  if (a.getAttribute("href") !== location.hash) history.pushState({}, "", a.getAttribute("href"));
+  followUrl();
+});
+
+function setTitle() {
+  document.title = current
+    ? `${current.shortcut.label}${current.path === "/" ? "" : " – " + current.path} · Quick FTP Explorer`
+    : `${t("nav.home")} · Quick FTP Explorer`;
+}
+
+const STALE_MS = 60_000;
+
+async function onSelect(target) {
+  const moved = !current || current.shortcut.id !== target.shortcut.id || current.path !== target.path;
+  if (searching) clearSearch();   // as in File Explorer, going somewhere ends the search
+  if (moved) {
+    filters = { ...NO_FILTERS };
+    selection = sel.EMPTY;
+    hideNotice();
+  }
+  current = target;
+  listError = null;
   searchInput.placeholder = searchPlaceholder();
   // A new history entry per folder, unless the URL already says so (Back /
   // Forward, a pasted link, the page loading).
-  const hash = formatHash(sel.shortcut.id, sel.path);
-  if (location.hash !== hash) history.pushState(null, "", hash);
+  const hash = formatHash(target.shortcut.id, target.path);
+  if (location.hash !== hash) history.pushState({}, "", hash);
   if (narrow.matches) setDrawer(false);
-  renderBreadcrumb(sel);
+  renderBreadcrumb();
   refreshBtn.disabled = false;
-  document.title = `${sel.shortcut.label}${sel.path === "/" ? "" : " – " + sel.path} · Quick FTP Explorer`;
+  setTitle();
+  grid.hold();
   const seq = ++viewSeq;
-  const cached = tree.cached(sel.shortcut, sel.path);
-  renderRight({ entries: cached });
-  if (cached) return;
+  const { shortcut: sc, path } = target;
+  const cached = tree.cached(sc, path);
+  renderView();
+  if (cached) {
+    // An old listing shows at once and reloads behind the scenes.
+    const age = Date.now() - (tree.loadedAt(sc, path) ?? 0);
+    if (age > STALE_MS) refreshQuietly(seq);
+    return;
+  }
   try {
-    const entries = await busy(t("nav.loadingFolder"), () => tree.listing(sel.shortcut, sel.path));
-    if (seq === viewSeq) renderRight({ entries });
+    const entries = await busy(t("nav.loadingFolder"), () => tree.listing(sc, path));
+    if (seq !== viewSeq) return;
+    renderView();
+    announce(t("status.loaded", { place: placeParts().at(-1), count: tn("count.items", entries.length) }));
   } catch (err) {
-    if (seq === viewSeq) renderRight({ error: err });
+    if (seq !== viewSeq) return;
+    listError = err;
+    renderView();
   }
 }
 
-function clearSelection() {
-  current = null;
-  searchInput.placeholder = searchPlaceholder();
-  tree.clearSelection();
-  refreshBtn.disabled = true;
-  document.title = "Quick FTP Explorer";
-  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
-  renderBreadcrumb(null);
-  renderRight(null);
+async function refreshQuietly(seq) {
+  const { shortcut: sc, path } = current;
+  try {
+    await tree.refresh(sc, path, { quiet: true });
+    if (seq === viewSeq && !searching) renderView();
+  } catch {
+    // the cached rows stay; ↻ shows what went wrong
+  }
 }
 
-// Show whatever folder the URL names (page load, Back / Forward, an edited
-// or pasted link). Unknown shortcuts are ignored; no fragment clears the view.
-// Until the shortcuts are loaded, a link can't be told from an unknown one:
-// the boot follows the URL once they are.
+function goHome({ push = true } = {}) {
+  if (searching) clearSearch();
+  current = null;
+  filters = { ...NO_FILTERS };
+  selection = sel.EMPTY;
+  listError = null;
+  hideNotice();
+  searchInput.placeholder = searchPlaceholder();
+  tree.selectHome();
+  refreshBtn.disabled = true;
+  if (push && location.hash !== "#/") history.pushState({}, "", "#/");
+  setTitle();
+  renderBreadcrumb();
+  grid.hold();
+  if (narrow.matches) setDrawer(false);
+  renderView();
+}
+
+function goUp() {
+  if (!current) return;
+  const parent = parentPath(current.path);
+  if (parent === null) goHome();
+  else tree.reveal(current.shortcut, parent);
+}
+
+// Show whatever the URL names (page load, Back / Forward, an edited or
+// pasted link). Unknown sites and no fragment show Tous les sites. Until
+// the sites are loaded, a link can't be told from an unknown one: the boot
+// follows the URL once they are.
 let booted = false;
 function followUrl() {
   if (!booted) return;
   const target = parseHash(location.hash);
   if (!target) {
-    if (current) clearSelection();
+    if (current || searching) goHome({ push: false });
     return;
   }
   if (current && current.shortcut.id === target.id && current.path === target.path) return;
   const sc = shortcuts.find((s) => s.id === target.id);
   if (sc) tree.reveal(sc, target.path);
-  else if (current) clearSelection();
-  else history.replaceState(null, "", location.pathname + location.search);
+  else {
+    history.replaceState({}, "", "#/");
+    goHome({ push: false });
+  }
 }
-window.addEventListener("popstate", followUrl);
+
+window.addEventListener("popstate", () => {
+  // The viewer has a history entry of its own: Back closes it.
+  const wanted = history.state?.viewer;
+  if (viewer.isOpen() && !wanted) {
+    const last = viewer.current();
+    viewer.close();
+    if (last) selectAndFocus(last.key);
+  }
+  followUrl();
+  if (!viewer.isOpen() && wanted) {
+    const row = grid.row(wanted.key);
+    if (row) openViewer(row, { push: false });
+  }
+});
 window.addEventListener("hashchange", followUrl);
 
-/* ---- narrow screens: the left pane as a drawer ---- */
-
-function setDrawer(open) {
-  appEl.classList.toggle("drawer-open", open);
-  menuBtn.setAttribute("aria-expanded", String(open));
+function selectAndFocus(key) {
+  if (!grid.row(key)) return;
+  selection = sel.click(sel.EMPTY, shownRows.map((r) => r.key), key);
+  grid.update(selection);
+  grid.focus(key);
+  updateChrome();
 }
-menuBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-  setDrawer(!appEl.classList.contains("drawer-open"));
-});
-rightPane.addEventListener("pointerdown", () => {
-  if (narrow.matches) setDrawer(false);
-});
 
+/* ---- refresh ---- */
+
+function showNotice(text, retry) {
+  const button = el("button", "btn-secondary btn-sm", t("common.retry"));
+  button.type = "button";
+  button.addEventListener("click", () => {
+    hideNotice();
+    retry();
+  });
+  notice.replaceChildren(el("span", "", text), button);
+  notice.hidden = false;
+}
+function hideNotice() {
+  notice.hidden = true;
+  notice.replaceChildren();
+}
+
+// ↻ keeps the rows on screen while the listing reloads.
 async function refresh() {
   if (!current) return;
-  const sel = current;
-  const seq = ++viewSeq;
-  renderRight({ entries: null });
+  const target = current;
+  const seq = viewSeq;
+  hideNotice();
+  grid.table()?.setAttribute("aria-busy", "true");
   try {
-    const entries = await busy(t("nav.refreshing"), () => tree.refresh(sel.shortcut, sel.path));
-    if (seq === viewSeq) renderRight({ entries });
+    await busy(t("nav.refreshing"), () => tree.refresh(target.shortcut, target.path, { quiet: true }));
+    listError = null;
   } catch (err) {
-    if (seq === viewSeq) renderRight({ error: err });
+    if (seq !== viewSeq) return;
+    if (tree.cached(target.shortcut, target.path) || shownRows.length) {
+      showNotice(t("refresh.failed", { reason: err.message }), refresh);
+    } else {
+      listError = err;
+    }
   }
+  if (seq !== viewSeq) return;
+  grid.table()?.removeAttribute("aria-busy");
   if (searching) restartSearch();
+  else renderView();
 }
 
 /* ---- opening files ---- */
@@ -223,22 +556,89 @@ function follow(url, { newTab = false, download = false } = {}) {
   a.click();
 }
 
-function openFile(sc, entry, path) {
-  const kind = kindFor(entry.name);
-  const inline = inlineType(entry.name);
-  const url = api.fileUrl(sc.id, path);
-  const downloadUrl = api.fileUrl(sc.id, path, { download: true });
+function openRow(row) {
+  if (row.kind === "site") tree.reveal(row.sc, "/");
+  else if (row.isDir) tree.reveal(row.sc, row.path);
+  else openFile(row);
+}
+
+function openInNewTab(row) {
+  window.open(location.pathname + formatHash(row.sc.id, row.path), "_blank", "noopener");
+}
+
+const placeOf = (row) => [row.sc.label, ...String(row.parent ?? "/").split("/").filter(Boolean)].join(" › ");
+
+// What the viewer shows for a row: its URLs, and "Cam 2 · 01/11/2026 16:15".
+function viewerItem(row) {
+  const kind = kindFor(row.name);
+  const inline = inlineType(row.name);
+  const url = api.fileUrl(row.sc.id, row.path);
+  const downloadUrl = api.fileUrl(row.sc.id, row.path, { download: true });
+  const time = row.time === null ? "" : formatDateTime(row.time, row.timeSource === "name" ? row.precision : "minute");
+  const caption = row.camera && time ? t("viewer.caption", { camera: row.camera, time }) : row.camera || time || row.name;
+  const subtitle = searching ? t("viewer.nameIn", { name: row.name, place: placeOf(row) }) : caption === row.name ? "" : row.name;
   if (kind === "video") {
     // MP4 & co. stream straight from FTP. Other videos, and those the browser
     // turns out not to decode, come through the server's converter.
-    const playUrl = api.playUrl(sc.id, path);
-    viewer.open({ name: entry.name, kind, url: inline ? url : playUrl, fallbackUrl: inline ? playUrl : null, downloadUrl });
-  } else if (inline && ["image", "audio"].includes(kind)) {
-    viewer.open({ name: entry.name, kind, url, downloadUrl });
-  } else if (inline) {
-    follow(url, { newTab: true });   // PDF and text: the browser's own viewer
-  } else {
-    follow(downloadUrl, { download: true });
+    const playUrl = api.playUrl(row.sc.id, row.path);
+    return { name: row.name, kind, url: inline ? url : playUrl, fallbackUrl: inline ? playUrl : null, downloadUrl, caption, subtitle };
+  }
+  return { name: row.name, kind, url, downloadUrl, caption, subtitle };
+}
+
+function openViewer(row, { push = true } = {}) {
+  const { items, index } = playlist(shownRows, row.key, selection.selected);
+  if (index < 0) return;
+  grid.hold();
+  if (push) history.pushState({ ...history.state, viewer: { key: row.key } }, "", location.href);
+  viewer.open(items, index, {
+    describe: viewerItem,
+    onShow(shownRow) {
+      history.replaceState({ ...history.state, viewer: { key: shownRow.key } }, "", location.href);
+    },
+    onRequestClose: () => history.back(),
+    autoplay: () => prefs.get("autoplay"),
+  });
+}
+
+function openFile(row) {
+  if (viewable(row)) return openViewer(row);
+  const inline = inlineType(row.name);
+  if (inline) follow(api.fileUrl(row.sc.id, row.path), { newTab: true });   // PDF and text: the browser's own viewer
+  else follow(api.fileUrl(row.sc.id, row.path, { download: true }), { download: true });
+}
+
+const selectedRows = () => shownRows.filter((r) => selection.selected.has(r.key));
+
+function openSelection() {
+  const picked = selectedRows();
+  const files = picked.filter((r) => !r.isDir);
+  if (picked.length === 1) openRow(picked[0]);
+  else if (files.length >= 2) {
+    const first = files.find(viewable);
+    if (first) openViewer(first);
+  }
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+function localStamp() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+async function downloadSelection() {
+  const files = selectedRows().filter((r) => !r.isDir);
+  const state = downloadState(files);
+  if (!state.enabled) return;
+  if (files.length === 1) {
+    follow(api.fileUrl(files[0].sc.id, files[0].path, { download: true }), { download: true });
+    return;
+  }
+  try {
+    const { url } = await busy(t("zip.preparing"), () => api.prepareZip(files[0].sc.id, files.map((r) => r.path), localStamp()));
+    follow(url, { download: true });
+  } catch (err) {
+    toast(t("zip.failed", { reason: err.message }));
   }
 }
 
@@ -249,9 +649,7 @@ function openFile(sc, entry, path) {
 // again only when the place searched changes.
 const MAX_SHOWN = 500;
 let searchTimer = 0;
-let renderQueued = false;
-
-const placeParts = () => [current.shortcut.label, ...current.path.split("/").filter(Boolean)];
+let renderTimer = 0;
 
 function searchPlaceholder() {
   return current ? t("search.in", { place: placeParts().at(-1) }) : t("search.allSites");
@@ -260,19 +658,30 @@ function searchPlaceholder() {
 function stopSearch() {
   searching?.progress.cancel();
   searching = null;
+  clearTimeout(renderTimer);
+  renderTimer = 0;
+  resultsHeader.hidden = true;
+  resultsHeader.replaceChildren();
 }
 
 function clearSearch() {
   clearTimeout(searchTimer);
   searchInput.value = "";
+  searchClear.hidden = true;
   stopSearch();
 }
 
+function scopeText() {
+  return current ? placeParts().join(" › ") : t("search.scopeAll");
+}
+
 function runSearch() {
-  if (!searchInput.value.trim()) {
+  const query = searchInput.value.trim();
+  searchClear.hidden = !searchInput.value;
+  if (!query) {
     if (searching) {
       stopSearch();
-      renderRight(rightView);
+      renderView();
     }
     return;
   }
@@ -281,9 +690,10 @@ function runSearch() {
   if (searching?.key !== key) {
     stopSearch();
     const roots = current ? [{ sc: current.shortcut, path: current.path }] : shortcuts.map((sc) => ({ sc, path: "/" }));
-    searching = { key, progress: scan(roots, tree.listing, queueSearchRender) };
+    searching = { key, progress: scan(roots, tree.listing, queueSearchRender), header: null };
+    announce(t("search.started", { scope: scopeText() }));
   }
-  renderSearch();
+  renderView();
 }
 
 function restartSearch() {
@@ -291,129 +701,347 @@ function restartSearch() {
   runSearch();
 }
 
-// Folders are read in bursts: draw at most once per frame.
-function queueSearchRender() {
-  if (renderQueued) return;
-  renderQueued = true;
-  requestAnimationFrame(() => {
-    renderQueued = false;
-    if (searching) renderSearch();
-  });
+// Folders are read in bursts: redraw at most every 300 ms, and once more
+// when the walk ends.
+function queueSearchRender(progress) {
+  if (progress.done) {
+    clearTimeout(renderTimer);
+    renderTimer = 0;
+    if (searching) {
+      renderView();
+      announce(searching.header?.status.textContent ?? "");
+    }
+    return;
+  }
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = 0;
+    if (searching) renderView();
+  }, 300);
 }
 
-function renderSearch() {
+function searchRows() {
   const query = searchInput.value.trim();
   const terms = searchTerms(query);
   const { progress } = searching;
+  const marks = new Map(), places = new Map();
   const sites = current ? [] : shortcuts
     .map((sc) => ({ sc, ranges: matchName(sc.label, terms) }))
-    .filter((site) => site.ranges);
-  const matches = [];
+    .filter((site) => site.ranges)
+    .map(({ sc, ranges }) => {
+      const row = siteRow(sc);
+      marks.set(row.key, ranges);
+      return row;
+    });
+  const rows = [];
   for (const item of progress.items) {
     const ranges = matchFolded(item.folded, terms);
-    if (ranges) matches.push({ item, ranges });
+    if (!ranges) continue;
+    const row = describeEntry(item.entry, { sc: item.sc, parent: item.parent });
+    marks.set(row.key, ranges);
+    places.set(row.key, placeOf(row));
+    rows.push(row);
   }
-  matches.sort((a, b) => compareEntries(a.item.entry, b.item.entry) || a.item.path.localeCompare(b.item.path));
-  files.renderResults(rightPane, {
-    query,
-    scope: current ? placeParts().join(" › ") : t("search.scopeAll"),
-    maxFolders: LIMITS.folders,
-    sites,
-    hits: matches.slice(0, MAX_SHOWN),
-    total: matches.length,
-    progress,
-  }, {
-    onOpenSite: (sc) => tree.reveal(sc, "/"),
-    onOpenItem: (item) => (item.entry.isDir ? tree.reveal(item.sc, item.path) : openFile(item.sc, item.entry, item.path)),
-    onSearchAll: current ? () => { clearSelection(); runSearch(); } : null,
-  });
+  return {
+    mode: "search", label: t("a11y.results"), rows, sites, marks, places, query,
+    empty: emptyNode(progress.done ? t("search.none", { query, scope: scopeText() }) : t("search.started", { scope: scopeText() })),
+  };
+}
+
+// Built once per search, then updated in place.
+function updateResultsHeader(view) {
+  const { progress } = searching;
+  if (!searching.header) {
+    const statusLine = el("p", "search-status");
+    const notes = el("div", "search-notes");
+    resultsHeader.replaceChildren(statusLine, notes);
+    if (current) {
+      const all = el("button", "btn-secondary btn-sm", t("search.allSites"));
+      all.type = "button";
+      all.addEventListener("click", () => {
+        goHome();
+        searchInput.value = view.query;
+        runSearch();
+      });
+      resultsHeader.append(all);
+    }
+    searching.header = { status: statusLine, notes };
+  }
+  const matches = view.rows.length + view.sites.length;
+  const results = tn("count.results", matches);
+  const scope = scopeText();
+  searching.header.status.textContent = !progress.done
+    ? t("search.running", { scope, folders: tn("count.foldersRead", progress.listed), results })
+    : t(matches ? "search.done" : "search.none", { query: view.query, scope, results });
+  const notes = [];
+  if (view.capped) notes.push(t("search.capped", { n: MAX_SHOWN }));
+  if (progress.truncated) notes.push(t("search.truncated", { max: LIMITS.folders }));
+  if (progress.failed) notes.push(tn("search.failed", progress.failed));
+  searching.header.notes.replaceChildren(...notes.map((n) => el("p", "search-note", n)));
+  resultsHeader.hidden = false;
 }
 
 searchInput.addEventListener("input", () => {
+  searchClear.hidden = !searchInput.value;
   clearTimeout(searchTimer);
   searchTimer = setTimeout(runSearch, 150);
 });
 searchInput.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && searchInput.value) {
     e.preventDefault();
+    e.stopPropagation();
     clearSearch();
-    renderRight(rightView);
+    renderView();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    clearTimeout(searchTimer);
+    runSearch();
+  } else if (e.key === "ArrowDown" && searching && shownRows.length) {
+    e.preventDefault();
+    selectAndFocus(shownRows[0].key);
+  }
+});
+searchClear.addEventListener("click", () => {
+  clearSearch();
+  renderView();
+  searchInput.focus();
+});
+
+/* ---- phone search: the field laid over the top bar ---- */
+
+const topbar = document.querySelector(".topbar");
+function openPhoneSearch() {
+  topbar.classList.add("searching");
+  layers.push("search", closePhoneSearch);
+  searchInput.focus();
+}
+function closePhoneSearch() {
+  layers.remove("search");
+  topbar.classList.remove("searching");
+  if (searchInput.value) {
+    clearSearch();
+    renderView();
+  }
+  $("search-open").focus();
+}
+$("search-open").addEventListener("click", openPhoneSearch);
+$("search-close").addEventListener("click", closePhoneSearch);
+
+/* ---- keyboard shortcuts ---- */
+
+function focusSearch() {
+  if (narrow.matches) openPhoneSearch();
+  searchInput.focus();
+  searchInput.select();
+}
+
+onShortcut((name, e) => {
+  if (document.querySelector("dialog[open]")) return false;
+  switch (name) {
+    case "find":
+      if (e.target === searchInput) return false;   // the browser's own find, then
+      focusSearch();
+      return true;
+    case "menu": {
+      const row = grid.rowAt(document.activeElement);
+      if (row) {
+        rowMenu(row, document.activeElement);
+        return true;
+      }
+      const item = tree.itemAt(document.activeElement);
+      if (item) {
+        treeMenu(item, item.element);
+        return true;
+      }
+      return false;
+    }
+    case "up":
+      if (!current || isTypingTarget(e.target)) return false;
+      goUp();
+      return true;
+    default:
+      return false;
   }
 });
 
-/* ---- splitter (mouse, pen and touch) ---- */
+$("skip").addEventListener("click", () => {
+  const row = grid.focusedRow() ?? shownRows[0];
+  if (row) grid.focus(row.key);
+  else fileList.focus();
+});
 
-const SPLIT_KEY = "qfe.leftPaneWidth";
-try {
-  const saved = Number(localStorage.getItem(SPLIT_KEY));
-  if (saved >= 180 && saved <= 560) leftPane.style.width = saved + "px";
-} catch { /* storage unavailable: keep the default width */ }
+/* ---- context menus ---- */
 
+function rowMenu(row, at) {
+  if (!selection.selected.has(row.key)) {
+    selection = sel.click(selection, shownRows.map((r) => r.key), row.key);
+    grid.update(selection);
+    updateChrome();
+  }
+  const items = [{ label: t("cmd.open"), isDefault: true, run: () => openRow(row) }];
+  if (row.kind === "site") {
+    items.push({ label: t("menu.openNewTab"), run: () => openInNewTab(row) });
+    if (isAdmin()) siteAdminItems(items, row.sc);
+  } else if (row.isDir) {
+    items.push({ label: t("menu.openNewTab"), run: () => openInNewTab(row) });
+  } else {
+    const files = selectedRows().filter((r) => !r.isDir);
+    const state = downloadState(files);
+    items.push({
+      label: files.length > 1 ? t("cmd.downloadCount", { n: files.length }) : t("cmd.download"),
+      disabled: !state.enabled, title: state.title, run: downloadSelection,
+    });
+    if (searching) items.push({ label: t("menu.openLocation"), run: () => openLocation(row) });
+    items.push("separator", { label: t("menu.selectAll"), shortcut: t("kbd.ctrlA"), run: selectAllFiles });
+  }
+  openMenu(at, items, { label: t("menu.label", { name: row.name }) });
+}
+
+function siteAdminItems(items, sc) {
+  const full = shortcuts.find((s) => s.id === sc.id) ?? sc;
+  items.push("separator",
+    { label: t("sc.menuEdit"), run: () => openShortcutModal(full) },
+    { label: t("sc.menuDelete"), danger: true, run: () => deleteShortcut(full) });
+}
+
+function treeMenu(item, at) {
+  if (item.home) {
+    openMenu(at, [{ label: t("cmd.open"), isDefault: true, run: () => goHome() }], { label: t("nav.home") });
+    return;
+  }
+  const row = { sc: item.sc, path: item.path };
+  const items = [
+    { label: t("cmd.open"), isDefault: true, run: () => tree.reveal(item.sc, item.path) },
+    { label: t("menu.openNewTab"), run: () => openInNewTab(row) },
+  ];
+  if (item.isRoot && isAdmin()) siteAdminItems(items, item.sc);
+  openMenu(at, items, { label: t("menu.label", { name: item.isRoot ? item.sc.label : item.path.split("/").at(-1) }) });
+}
+
+function listMenu(at) {
+  const items = [];
+  if (current) items.push({ label: t("nav.refresh"), run: refresh });
+  items.push({ label: t("menu.selectAll"), shortcut: t("kbd.ctrlA"), run: selectAllFiles });
+  openMenu(at, items, { label: t("menu.listLabel") });
+}
+
+function selectAllFiles() {
+  selection = sel.selectAll(selection, shownRows.filter((r) => !r.isDir).map((r) => r.key));
+  grid.update(selection);
+  updateChrome();
+}
+
+function openLocation(row) {
+  clearSearch();
+  pendingSelect = row.key;
+  tree.reveal(row.sc, row.parent);
+}
+
+appEl.addEventListener("contextmenu", (e) => {
+  if (isTypingTarget(e.target) || e.target.closest("a, dialog")) return;   // the browser's own menu
+  const point = { x: e.clientX, y: e.clientY };
+  const row = grid.rowAt(e.target);
+  if (row) {
+    e.preventDefault();
+    rowMenu(row, point);
+    return;
+  }
+  const item = tree.itemAt(e.target);
+  if (item) {
+    e.preventDefault();
+    treeMenu(item, point);
+    return;
+  }
+  if (fileList.contains(e.target) && viewName() !== "home") {
+    e.preventDefault();
+    listMenu(point);
+  } else if (leftPane.contains(e.target) && isAdmin()) {
+    e.preventDefault();
+    openMenu(point, [{ label: t("sc.menuNew"), run: () => openShortcutModal(null) }], { label: t("nav.shortcuts") });
+  }
+});
+
+/* ---- splitter: drag, click, or the arrow keys ---- */
+
+const DEFAULT_WIDTH = 280;
+function setPaneWidth(width, save = true) {
+  const w = Math.max(180, Math.min(560, Math.round(width)));
+  leftPane.style.width = w + "px";
+  splitter.setAttribute("aria-valuenow", String(w));
+  if (save) prefs.set("leftPaneWidth", w);
+}
+setPaneWidth(prefs.get("leftPaneWidth") ?? DEFAULT_WIDTH, false);
+
+let drag = null;
 splitter.addEventListener("pointerdown", (e) => {
   splitter.setPointerCapture(e.pointerId);
   splitter.classList.add("dragging");
+  drag = { x: e.clientX, moved: false };
   e.preventDefault();
 });
 splitter.addEventListener("pointermove", (e) => {
-  if (!splitter.hasPointerCapture(e.pointerId)) return;
-  leftPane.style.width = Math.max(180, Math.min(560, e.clientX)) + "px";
+  if (!drag || !splitter.hasPointerCapture(e.pointerId)) return;
+  if (Math.abs(e.clientX - drag.x) > 3) drag.moved = true;
+  if (drag.moved) setPaneWidth(e.clientX, false);
 });
 splitter.addEventListener("pointerup", (e) => {
   splitter.releasePointerCapture(e.pointerId);
   splitter.classList.remove("dragging");
-  try {
-    localStorage.setItem(SPLIT_KEY, String(parseInt(leftPane.style.width, 10)));
-  } catch { /* not worth failing over */ }
-});
-
-/* ---- context menu (admins): New / Edit / Delete ---- */
-
-const ctxMenu = $("ctx-menu");
-const ctxItems = {
-  new: ctxMenu.querySelector('[data-action="new"]'),
-  edit: ctxMenu.querySelector('[data-action="edit"]'),
-  delete: ctxMenu.querySelector('[data-action="delete"]'),
-};
-let ctxTarget = null;
-
-function shortcutFromEvent(e) {
-  const rootLi = e.target.closest?.("#shortcut-list > li.tree-node");
-  const id = rootLi?.dataset.key.split("::")[0];
-  return shortcuts.find((sc) => sc.id === id) || null;
-}
-
-leftPane.addEventListener("contextmenu", (e) => {
-  if (!isAdmin()) return;   // everyone else keeps the browser's own menu
-  e.preventDefault();
-  ctxTarget = shortcutFromEvent(e);
-  ctxItems.edit.classList.toggle("disabled", !ctxTarget);
-  ctxItems.delete.classList.toggle("disabled", !ctxTarget);
-  ctxMenu.hidden = false;
-  // Keep the menu inside the viewport.
-  const { innerWidth: vw, innerHeight: vh } = window;
-  const { offsetWidth: mw, offsetHeight: mh } = ctxMenu;
-  ctxMenu.style.left = Math.max(0, Math.min(e.clientX, vw - mw - 4)) + "px";
-  ctxMenu.style.top = Math.max(0, Math.min(e.clientY, vh - mh - 4)) + "px";
-});
-
-document.addEventListener("click", () => { ctxMenu.hidden = true; });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    ctxMenu.hidden = true;
-    closeModal();
-    setDrawer(false);
+  const width = leftPane.offsetWidth;
+  // A click without moving steps through three widths: resizing without dragging.
+  if (drag && !drag.moved) {
+    const steps = [220, 280, 400];
+    setPaneWidth(steps.find((s) => s > width + 4) ?? steps[0]);
+  } else {
+    setPaneWidth(width);
   }
+  drag = null;
+});
+splitter.addEventListener("keydown", (e) => {
+  const width = leftPane.offsetWidth;
+  const step = e.shiftKey ? 64 : 16;
+  const keys = { ArrowLeft: width - step, ArrowRight: width + step, Home: 180, End: 560, Enter: DEFAULT_WIDTH };
+  if (!(e.key in keys)) return;
+  e.preventDefault();
+  setPaneWidth(keys[e.key]);
 });
 
-ctxMenu.addEventListener("click", (e) => {
-  const item = e.target.closest(".ctx-item");
-  if (!item || item.classList.contains("disabled")) return;
-  ctxMenu.hidden = true;
-  const action = item.dataset.action;
-  if (action === "new") openShortcutModal(null);
-  else if (action === "edit") openShortcutModal(ctxTarget);
-  else if (action === "delete") deleteShortcut(ctxTarget);
+/* ---- narrow screens: the sites pane as a drawer ---- */
+
+const scrim = $("scrim");
+function setDrawer(open) {
+  if (appEl.classList.contains("drawer-open") === open) return;
+  appEl.classList.toggle("drawer-open", open);
+  menuBtn.setAttribute("aria-expanded", String(open));
+  scrim.hidden = !open;
+  mainEl.inert = open && narrow.matches;
+  statusBar.inert = open && narrow.matches;
+  if (open) {
+    layers.push("drawer", () => setDrawer(false));
+    tree.focus();
+  } else {
+    layers.remove("drawer");
+    if (leftPane.contains(document.activeElement)) menuBtn.focus();
+  }
+}
+menuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setDrawer(!appEl.classList.contains("drawer-open"));
 });
+scrim.addEventListener("click", () => setDrawer(false));
+
+// Phones keep the account controls at the foot of the drawer: the same
+// nodes, so the sign-out form keeps working.
+const account = $("account");
+function placeAccount() {
+  if (narrow.matches) $("drawer-foot").append(account);
+  else statusBar.append(account);
+  if (!narrow.matches) setDrawer(false);
+  if (booted) renderView();   // the check boxes come and go
+}
+narrow.addEventListener("change", placeAccount);
+
+/* ---- sites: New / Edit / Delete (admins) ---- */
 
 newBtn.addEventListener("click", () => openShortcutModal(null));
 
@@ -425,11 +1053,9 @@ async function deleteShortcut(sc) {
     alert(t("sc.deleteFailed", { reason: err.message }));
     return;
   }
-  if (current?.shortcut.id === sc.id) clearSelection();
+  if (current?.shortcut.id === sc.id) goHome({ push: false });
   await loadShortcuts();
 }
-
-/* ---- new / edit shortcut modal ---- */
 
 const modal = $("sc-modal");
 const form = $("sc-form");
@@ -440,8 +1066,9 @@ const f = {
   port: $("f-port"), password: $("f-password"), preview: $("f-preview"),
   passwordHint: $("f-password-hint"),
 };
-let editing = null;          // the shortcut being edited, or null for "new"
+let editing = null;          // the site being edited, or null for "new"
 let passwordTouched = false;
+let modalOpener = null;
 
 function updatePreview() {
   f.preview.textContent = composeLabel(f.username.value.trim(), f.custom.value.trim());
@@ -449,6 +1076,7 @@ function updatePreview() {
 
 function openShortcutModal(existing) {
   editing = existing;
+  modalOpener = document.activeElement;
   formError.hidden = true;
   if (existing) {
     modalTitle.textContent = t("sc.titleEdit");
@@ -473,15 +1101,19 @@ function openShortcutModal(existing) {
     passwordTouched = false;
   }
   updatePreview();
-  modal.hidden = false;
+  modal.showModal();
   f.username.focus();
   f.username.select();
 }
 
 function closeModal() {
-  modal.hidden = true;
-  editing = null;
+  if (modal.open) modal.close();
 }
+modal.addEventListener("close", () => {
+  editing = null;
+  if (modalOpener?.isConnected) modalOpener.focus();
+  modalOpener = null;
+});
 
 // As in the HTA: in "new" mode the password mirrors the username until typed.
 f.username.addEventListener("input", () => {
@@ -520,15 +1152,16 @@ form.addEventListener("submit", async (e) => {
   await loadShortcuts();
   if (wasEditing && current?.shortcut.id === wasEditing.id) {
     // Same id: keep browsing it with the fresh details. Renamed: the old
-    // tree node is gone, so start over from the renamed shortcut's root.
+    // tree node is gone, so start over from the renamed site's root.
     const fresh = shortcuts.find((sc) => sc.id === id);
     if (fresh && id === wasEditing.id) {
       current = { ...current, shortcut: fresh };
-      renderBreadcrumb(current);
+      renderBreadcrumb();
+      setTitle();
     } else if (fresh) {
       tree.reveal(fresh, "/");
     } else {
-      clearSelection();
+      goHome({ push: false });
     }
   }
 });
@@ -536,20 +1169,34 @@ form.addEventListener("submit", async (e) => {
 /* ---- boot ---- */
 
 refreshBtn.addEventListener("click", refresh);
+toolbar.init({
+  onAction: (name) => (name === "open" ? openSelection() : downloadSelection()),
+  onSort: setSort,
+  onFilters: (next) => setFilters(next),
+});
+
+// Sliding periods ("Dernière heure"...) move with the clock.
+setInterval(() => {
+  if (current && activeFilters(filters).some((a) => a.name === "period")) renderView();
+}, 60_000);
 
 try {
   me = await api.me();
-  statusUser.textContent = t(isAdmin() ? "auth.signedInAsAdmin" : "auth.signedInAs", { name: me.username });
+  status.user.textContent = t(isAdmin() ? "auth.signedInAsAdmin" : "auth.signedInAs", { name: me.username });
   newBtn.hidden = !isAdmin();
-  tree.init(listEl, [], { onSelect });
+  tree.init(listEl, {
+    onSelect,
+    onHome: () => goHome(),
+    onMore: (sc, button) => treeMenu({ sc, path: "/", isRoot: true }, button),
+    admin: isAdmin(),
+  });
+  placeAccount();
   await loadShortcuts();
-  renderBreadcrumb(null);
-  renderRight(null);
   searchInput.placeholder = searchPlaceholder();
   booted = true;
-  followUrl();
-  // On a phone, start where the shortcuts are, unless a link opened a folder.
-  if (narrow.matches && !current) setDrawer(true);
+  if (parseHash(location.hash)) followUrl();
+  else goHome({ push: false });
 } catch (err) {
-  if (err.status !== 401) rightPane.replaceChildren(el("p", "placeholder placeholder-error", err.message));
+  if (err.status !== 401) fileList.replaceChildren(el("p", "placeholder placeholder-error", err.message));
 }
+

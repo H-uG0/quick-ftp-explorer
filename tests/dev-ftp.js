@@ -4,14 +4,16 @@
  *   node tests/dev-ftp.js [--port 2121] [--root <folder>]
  *
  * Without --root it serves a small demo tree: a real image and PDF to view,
- * text files, and an HTML and an SVG file that must download, not render.
+ * text files, an HTML and an SVG file that must download, not render, and a
+ * "Cameras" folder of clips named the way recorders name them, dated from
+ * the moment the server starts (their content is a byte pattern).
  * With --root it serves that folder read-only instead, e.g. one holding real
  * camera clips to try video playback and seeking. It listens on 127.0.0.1
  * only. Sign in as user "demo", password "demo".
  */
 
 import { deflateSync, crc32 } from "node:zlib";
-import { startFakeFtp, fixtureTree, link } from "./helpers/fake-ftp-server.js";
+import { startFakeFtp, fixtureTree, link, patternBytes } from "./helpers/fake-ftp-server.js";
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -67,6 +69,24 @@ function pdf(text) {
   return Buffer.from(out, "latin1");
 }
 
+// Clips from three cameras, the last ones minutes ago: two name their time
+// in the recorder's clock (YYYYMMDDhhmm), one in Unix seconds.
+function cameraClips(now = Date.now()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp = (ms) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}`;
+  };
+  const clips = {};
+  for (let i = 0; i < 40; i++) {
+    const at = now - 10 * 60_000 - i * 17 * 60_000;
+    clips[`1234_Cam ${(i % 2) + 1}_${stamp(at)}.avi`] = patternBytes(1900 + i * 7);
+    if (i % 4 === 0) clips[`12345678_02_${Math.floor((at - 90_000) / 1000)}.mp4`] = patternBytes(2600 + i);
+  }
+  clips["rapport.pdf"] = pdf("Rapport du site");
+  return clips;
+}
+
 const snapshot = png(640, 360, (x, y) => [Math.round((x / 640) * 255), Math.round((y / 360) * 255), 160]);
 
 // The test fixture's names, with real content where a browser will render it.
@@ -85,6 +105,7 @@ function demoTree() {
       "rapport été.pdf": pdf("Quick FTP Explorer - demo report"),
       "notes.txt": "Demo notes.\nThe accents in this folder name are on purpose: éàü.\n",
     },
+    "Cameras": cameraClips(),
     "Videos": { "README.txt": "No video in the demo tree. Run `node tests/dev-ftp.js --root <folder>` to serve real clips.\n" },
     "latest": link("Images"),
   };

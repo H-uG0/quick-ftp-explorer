@@ -1,30 +1,29 @@
 /*
- * ui.js - the left-pane folder tree and the right-pane file table.
+ * ui.js - the navigation pane (an ARIA tree of sites and their folders) and
+ * the listing cache both panes share.
  *
- *   tree.init(rootEl, shortcuts, { onSelect })  paint the shortcut roots
- *   tree.setShortcuts(shortcuts)                 replace roots; keep expand state, listings, selection
- *   tree.listing(sc, path)                       promise of a folder's entries (cached)
- *   tree.cached(sc, path)                        entries if already loaded, else null
- *   tree.reveal(sc, path)                        open every ancestor and select a folder
- *   tree.refresh(sc, path)                       forget a listing and load it again
- *   files.render(container, view, callbacks)     the name / type / size / modified table
- *   files.renderResults(container, view, callbacks)   search results, with where each one is
+ *   tree.init(rootEl, { onSelect, onHome, onMenu, onMore, admin })
+ *   tree.setShortcuts(shortcuts)          replace the sites; keep what is open and loaded
+ *   tree.listing(sc, path)                promise of a folder's entries (cached)
+ *   tree.cached(sc, path), tree.loadedAt(sc, path)   what is loaded, and since when
+ *   tree.reveal(sc, path)                 open every ancestor and select a folder (onSelect)
+ *   tree.selectHome()                     select "Tous les sites"
+ *   tree.refresh(sc, path, { quiet })     load a listing again
+ *   tree.focus(), tree.itemAt(target)
  *
- * The tree shows shortcuts as roots and FOLDERS ONLY below them; files go in
- * the right pane. State is keyed by "<shortcutId>::<path>" so expand state,
- * listings and the selection survive re-renders. Both panes share one
- * listing per folder, so the right pane never depends on the tree having
- * rendered (or even shown) a node. Names from the FTP server only ever
- * reach the page as text, never as HTML.
+ * The tree shows "Tous les sites", then each site with its FOLDERS only;
+ * files go in the list. One Tab stop: Up/Down move, Right opens a branch or
+ * goes into it, Left closes it or goes to the parent, Home/End, Enter or
+ * Space opens the item on the right, and typing jumps to a label. The
+ * arrows never open an item: each opening costs an FTP listing. State is
+ * keyed by "<shortcutId>::<path>", so it survives redraws. Names from the
+ * FTP server only ever reach the page as text.
  */
 
 import * as api from "./api.js";
-import { kindFor, extension } from "./filetypes.js";
-import { joinPath, sortEntries } from "./util.js";
-import { t, tn, language, formatSize, formatDate } from "./i18n.js";
+import { joinPath, sortEntries, typeAhead } from "./util.js";
+import { t } from "./i18n.js";
 import { icon } from "./icons.js";
-
-const OPEN = "▾", CLOSED = "▸", LOADING = "◌";   // ▾ ▸ ◌
 
 export function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -34,25 +33,32 @@ export function el(tag, className, text) {
 }
 
 const keyFor = (scId, path) => `${scId}::${path}`;
-
-/* ---------------------------------------------------------------- tree */
+const HOME = "home";
+const siteOf = (key) => (key && key !== HOME ? key.split("::")[0] : null);
 
 let rootEl = null;
-let notifySelect = () => {};
+let hooks = { onSelect() {}, onHome() {}, onMenu() {}, onMore() {}, admin: false };
 const state = {
   shortcuts: [],
-  listings: new Map(),   // key -> { promise, entries, error }
+  listings: new Map(),   // key -> { promise, entries, error, loadedAt }
   expanded: new Set(),   // keys
   activeKey: null,
 };
+let typed = "", typedAt = 0;
+
+/* ---- listings ---- */
 
 function listing(sc, path) {
   const key = keyFor(sc.id, path);
   let item = state.listings.get(key);
   if (!item || item.error) {   // a failed listing is retried on the next request
-    item = { entries: null, error: null };
+    item = { entries: null, error: null, loadedAt: null };
     item.promise = api.listDir(sc.id, path).then(
-      (entries) => { item.entries = entries; return entries; },
+      (entries) => {
+        item.entries = entries;
+        item.loadedAt = Date.now();
+        return entries;
+      },
       (err) => { item.error = err; throw err; },
     );
     state.listings.set(key, item);
@@ -60,104 +66,251 @@ function listing(sc, path) {
   return item.promise;
 }
 
-function renderAll() {
-  rootEl.replaceChildren(...state.shortcuts.map((sc) => buildNode(sc, "/", sc.label, true)));
-}
+const folderNames = (entries) => sortEntries(entries.filter((e) => e.isDir)).map((e) => e.name).join("\n");
 
-function buildNode(sc, path, label, isRoot) {
-  const key = keyFor(sc.id, path);
-  const open = state.expanded.has(key);
+/* ---- drawing ---- */
+
+function treeItem(key, level, label, iconName) {
   const li = el("li", "tree-node");
   li.dataset.key = key;
-
+  li.setAttribute("role", "treeitem");
+  li.setAttribute("aria-level", String(level));
+  li.setAttribute("aria-selected", String(state.activeKey === key));
+  li.tabIndex = -1;
   const row = el("div", "tree-row");
   row.classList.toggle("active", state.activeKey === key);
-  const toggle = el("span", "tree-toggle", open ? OPEN : CLOSED);
-  const labelEl = el("span", "tree-label", label);
-  // Admins also know where the server lives; everyone else just sees the label.
-  labelEl.title = isRoot ? (sc.host ? `${sc.label}  (${sc.host}:${sc.port})` : sc.label) : path;
+  const toggle = el("span", "tree-toggle");
+  toggle.setAttribute("aria-hidden", "true");
   const iconEl = el("span", "tree-icon");
-  iconEl.append(icon(isRoot ? "site" : "folder"));
+  iconEl.append(icon(iconName));
+  const labelEl = el("span", "tree-label", label);
   row.append(toggle, iconEl, labelEl);
+  li.append(row);
+  return { li, row, toggle, labelEl };
+}
 
-  const children = el("ul", "tree-children");
-  children.hidden = !open;
-  li.append(row, children);
-
-  // Click the row: select it and open it. Click only the triangle: toggle.
-  toggle.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (state.expanded.has(key)) collapse(key, toggle, children);
-    else expand(sc, path, key, toggle, children);
-  });
-  row.addEventListener("click", () => {
-    select(sc, path);
-    if (!state.expanded.has(key)) expand(sc, path, key, toggle, children);
-  });
-
-  if (open) populate(sc, path, key, toggle, children);
+function homeNode() {
+  const { li } = treeItem(HOME, 1, t("nav.home"), "home");
+  li.classList.add("tree-home");
   return li;
 }
 
-function expand(sc, path, key, toggle, children) {
-  state.expanded.add(key);
-  children.hidden = false;
-  toggle.textContent = OPEN;
-  populate(sc, path, key, toggle, children);
+function renderAll() {
+  const focusedKey = rootEl.contains(document.activeElement) ? document.activeElement.closest("li")?.dataset.key : null;
+  rootEl.replaceChildren(homeNode(), ...state.shortcuts.map((sc) => buildNode(sc, "/", sc.label, 1)));
+  setTabStop();
+  if (focusedKey) itemEl(focusedKey)?.focus({ preventScroll: true });
 }
 
-function collapse(key, toggle, children) {
-  state.expanded.delete(key);
-  children.hidden = true;
-  toggle.textContent = CLOSED;
+function buildNode(sc, path, label, level) {
+  const key = keyFor(sc.id, path);
+  const isRoot = level === 1;
+  const { li, row, toggle, labelEl } = treeItem(key, level, label, isRoot ? "site" : "folder");
+  // Admins also know where the server lives; everyone else just sees the label.
+  labelEl.title = isRoot ? (sc.host ? `${sc.label}  (${sc.host}:${sc.port})` : sc.label) : path;
+  if (isRoot && hooks.admin && siteOf(state.activeKey) === sc.id) {
+    const more = el("button", "btn-icon tree-more");
+    more.type = "button";
+    more.tabIndex = -1;
+    more.setAttribute("aria-label", t("tree.more", { name: sc.label }));
+    more.title = t("tree.more", { name: sc.label });
+    more.append(icon("more"));
+    more.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hooks.onMore(sc, more);
+    });
+    row.append(more);
+  }
+  const children = el("ul", "tree-children");
+  children.setAttribute("role", "group");
+  li.append(children);
+
+  const loaded = state.listings.get(key)?.entries;
+  const leaf = loaded && !loaded.some((e) => e.isDir);
+  const open = state.expanded.has(key) && !leaf;
+  setBranch(li, toggle, children, leaf ? "leaf" : open ? "open" : "closed");
+
+  // Click the row: open it on the right, and show its folders. Click only
+  // the chevron: show or hide them.
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (state.expanded.has(key)) collapse(li);
+    else expand(li);
+  });
+  row.addEventListener("click", () => {
+    select(sc, path);
+    if (!state.expanded.has(key)) expand(li);
+  });
+  li._node = { sc, path, key };
+  if (open) populate(li);
+  return li;
 }
 
-function populate(sc, path, key, toggle, children) {
-  const item = state.listings.get(key);
-  if (item?.entries) {
-    renderFolders(sc, path, item.entries, children);
+// "open" | "closed" | "loading" | "leaf" (no subfolders: no chevron at all)
+function setBranch(li, toggle, children, mode) {
+  toggle.replaceChildren();
+  toggle.classList.toggle("loading", mode === "loading");
+  if (mode === "leaf") {
+    li.removeAttribute("aria-expanded");
+    children.hidden = true;
+    children.replaceChildren();
     return;
   }
-  children.replaceChildren(el("li", "tree-message muted", t("common.loading")));
-  toggle.textContent = LOADING;
-  const settle = () => { toggle.textContent = state.expanded.has(key) ? OPEN : CLOSED; };
+  if (mode !== "loading") toggle.append(icon("chevron"));
+  li.setAttribute("aria-expanded", String(mode !== "closed"));
+  toggle.classList.toggle("open", mode === "open");
+  children.hidden = mode === "closed";
+}
+
+const parts = (li) => ({ toggle: li.querySelector(":scope > .tree-row > .tree-toggle"), children: li.querySelector(":scope > .tree-children") });
+
+function expand(li) {
+  const { key } = li._node;
+  state.expanded.add(key);
+  populate(li);
+}
+
+function collapse(li) {
+  state.expanded.delete(li._node.key);
+  const { toggle, children } = parts(li);
+  setBranch(li, toggle, children, "closed");
+}
+
+function populate(li) {
+  const { sc, path, key } = li._node;
+  const { toggle, children } = parts(li);
+  const item = state.listings.get(key);
+  if (item?.entries) {
+    renderFolders(li, item.entries);
+    return;
+  }
+  setBranch(li, toggle, children, "loading");
   listing(sc, path).then(
-    (entries) => { settle(); renderFolders(sc, path, entries, children); },
-    (err) => { settle(); children.replaceChildren(el("li", "tree-message tree-error", err.message)); },
+    (entries) => { if (li.isConnected) renderFolders(li, entries); },
+    (err) => {
+      if (!li.isConnected) return;
+      setBranch(li, toggle, children, state.expanded.has(key) ? "open" : "closed");
+      children.replaceChildren(el("li", "tree-message tree-error", err.message));
+    },
   );
 }
 
-function renderFolders(sc, parentPath, entries, children) {
+function renderFolders(li, entries) {
+  const { sc, path, key } = li._node;
+  const { toggle, children } = parts(li);
   const folders = sortEntries(entries.filter((e) => e.isDir));
-  if (folders.length === 0) {
-    children.replaceChildren(el("li", "tree-message muted", t("tree.noSubfolders")));
+  if (!folders.length) {
+    setBranch(li, toggle, children, "leaf");
     return;
   }
-  children.replaceChildren(...folders.map((f) => buildNode(sc, joinPath(parentPath, f.name), f.name, false)));
+  const level = Number(li.getAttribute("aria-level")) + 1;
+  children.replaceChildren(...folders.map((f) => buildNode(sc, joinPath(path, f.name), f.name, level)));
+  setBranch(li, toggle, children, state.expanded.has(key) ? "open" : "closed");
 }
 
-function rowFor(key) {
-  for (const li of rootEl.querySelectorAll("li.tree-node")) {
-    if (li.dataset.key === key) return li.firstElementChild;
-  }
+function itemEl(key) {
+  for (const li of rootEl.querySelectorAll("li.tree-node")) if (li.dataset.key === key) return li;
   return null;
 }
 
-function select(sc, path) {
-  const key = keyFor(sc.id, path);
-  if (state.activeKey !== key) {
-    rootEl.querySelectorAll(".tree-row.active").forEach((r) => r.classList.remove("active"));
-    state.activeKey = key;
-    rowFor(key)?.classList.add("active");
-  }
-  notifySelect({ shortcut: sc, path });
+const visibleItems = () => [...rootEl.querySelectorAll("li.tree-node")].filter((li) => !li.parentElement.closest("ul[hidden]"));
+
+function setTabStop(key = state.activeKey) {
+  const target = (key && itemEl(key)) || rootEl.querySelector("li.tree-node");
+  for (const li of rootEl.querySelectorAll('li.tree-node[tabindex="0"]')) li.tabIndex = -1;
+  if (target) target.tabIndex = 0;
 }
 
+function markActive(key) {
+  state.activeKey = key;
+  for (const li of rootEl.querySelectorAll("li.tree-node")) {
+    const on = li.dataset.key === key;
+    li.setAttribute("aria-selected", String(on));
+    li.firstElementChild.classList.toggle("active", on);
+  }
+  setTabStop(key);
+}
+
+// The admin's ⋯ button sits on the open site's row: moving to another site
+// redraws the tree.
+function markActiveSite(key) {
+  const moved = hooks.admin && siteOf(state.activeKey) !== siteOf(key);
+  markActive(key);
+  if (moved) renderAll();
+}
+
+function select(sc, path) {
+  markActiveSite(keyFor(sc.id, path));
+  hooks.onSelect({ shortcut: sc, path });
+}
+
+function activate(li) {
+  if (li.dataset.key === HOME) {
+    markActiveSite(HOME);
+    hooks.onHome();
+  } else {
+    select(li._node.sc, li._node.path);
+  }
+}
+
+/* ---- keyboard ---- */
+
+function onKeydown(e) {
+  const li = e.target.closest?.("li.tree-node");
+  if (!li || e.altKey || e.ctrlKey || e.metaKey) return;
+  const items = visibleItems();
+  const at = items.indexOf(li);
+  const go = (target) => {
+    if (!target) return;
+    setTabStop(target.dataset.key);
+    target.focus();
+    target.scrollIntoView({ block: "nearest" });
+  };
+  const expanded = li.getAttribute("aria-expanded");
+  switch (e.key) {
+    case "ArrowDown": go(items[at + 1]); break;
+    case "ArrowUp": go(items[at - 1]); break;
+    case "Home": go(items[0]); break;
+    case "End": go(items.at(-1)); break;
+    case "ArrowRight":
+      if (expanded === "false") expand(li);
+      else if (expanded === "true") go(li.querySelector(":scope > .tree-children > li.tree-node"));
+      break;
+    case "ArrowLeft":
+      if (expanded === "true") collapse(li);
+      else go(li.parentElement.closest("li.tree-node"));
+      break;
+    case "Enter":
+    case " ":
+      activate(li);
+      break;
+    default:
+      if (e.key.length === 1 && /\S/.test(e.key)) {
+        const now = Date.now();
+        typed = now - typedAt > 700 ? e.key : typed + e.key;
+        typedAt = now;
+        const i = typeAhead(items.map((item) => item.querySelector(".tree-label").textContent), typed, at);
+        go(items[i]);
+        break;
+      }
+      return;
+  }
+  e.preventDefault();
+}
+
+/* ---- API ---- */
+
 export const tree = {
-  init(rootElement, shortcuts, { onSelect }) {
+  init(rootElement, options) {
     rootEl = rootElement;
-    notifySelect = onSelect;
-    state.shortcuts = shortcuts.slice();
+    hooks = { ...hooks, ...options };
+    rootEl.setAttribute("role", "tree");
+    rootEl.setAttribute("aria-label", t("nav.shortcuts"));
+    rootEl.addEventListener("keydown", onKeydown);
+    rootEl.addEventListener("click", (e) => {
+      const li = e.target.closest?.("li.tree-home");
+      if (li) activate(li);
+    });
     renderAll();
   },
 
@@ -172,7 +325,11 @@ export const tree = {
     return state.listings.get(keyFor(sc.id, path))?.entries ?? null;
   },
 
-  // Open the shortcut, every folder on the way, and the target itself, then
+  loadedAt(sc, path) {
+    return state.listings.get(keyFor(sc.id, path))?.loadedAt ?? null;
+  },
+
+  // Open the site, every folder on the way, and the target itself, then
   // select it. Nodes appear as their parents' listings arrive.
   reveal(sc, path) {
     let p = "/";
@@ -183,147 +340,36 @@ export const tree = {
     }
     state.activeKey = keyFor(sc.id, path);
     renderAll();
-    rowFor(state.activeKey)?.scrollIntoView({ block: "nearest" });
-    notifySelect({ shortcut: sc, path });
+    itemEl(state.activeKey)?.scrollIntoView({ block: "nearest" });
+    hooks.onSelect({ shortcut: sc, path });
   },
 
-  refresh(sc, path) {
-    state.listings.delete(keyFor(sc.id, path));
-    renderAll();
-    return listing(sc, path);
+  selectHome() {
+    markActiveSite(HOME);
   },
 
-  clearSelection() {
-    state.activeKey = null;
-    rootEl.querySelectorAll(".tree-row.active").forEach((r) => r.classList.remove("active"));
+  // A quiet refresh redraws the tree only if the subfolders changed, so it
+  // never takes the focus away from it.
+  async refresh(sc, path, { quiet = false } = {}) {
+    const key = keyFor(sc.id, path);
+    const before = state.listings.get(key)?.entries;
+    state.listings.delete(key);
+    if (!quiet) renderAll();
+    const entries = await listing(sc, path);
+    if (!quiet || !before || folderNames(before) !== folderNames(entries)) renderAll();
+    return entries;
+  },
+
+  focus() {
+    const li = (state.activeKey && itemEl(state.activeKey)) || rootEl.querySelector("li.tree-node");
+    li?.focus();
+  },
+
+  // { home: true } | { sc, path, isRoot } | null
+  itemAt(target) {
+    const li = target instanceof Element ? target.closest("li.tree-node") : null;
+    if (!li || !rootEl.contains(li)) return null;
+    if (li.dataset.key === HOME) return { home: true, element: li };
+    return { sc: li._node.sc, path: li._node.path, isRoot: li._node.path === "/", element: li };
   },
 };
-
-/* ---------------------------------------------------------------- files */
-
-const COLUMNS = [["col-name", "col.name"], ["col-type", "col.type"], ["col-size", "col.size"], ["col-date", "col.modified"]];
-
-function fileTable() {
-  const table = el("table", "file-table");
-  const head = table.createTHead().insertRow();
-  for (const [className, key] of COLUMNS) head.append(el("th", className, t(key)));
-  return { table, body: table.createTBody() };
-}
-
-const typeOf = (entry) => (entry.isDir ? t("type.folder") : (extension(entry.name).toUpperCase() || t("type.file")));
-const sizeOf = (entry) => (entry.isDir ? "" : formatSize(entry.size, language()));
-
-// One row: icon, name (and `below` it, where a search result lives), type,
-// size, date. One click (or Enter) activates it.
-function addRow(body, { kind, name, title, below, type, size, date }, activate) {
-  const row = body.insertRow();
-  row.className = `entry-row ${kind}`;
-  row.tabIndex = 0;
-  const cell = row.insertCell();
-  cell.className = "col-name";
-  cell.title = title;
-  const iconEl = el("span", "file-icon");
-  iconEl.append(icon(kind));
-  cell.append(iconEl, name);
-  if (below) cell.append(below);
-  row.append(el("td", "col-type muted", type), el("td", "col-size muted", size), el("td", "col-date muted", formatDate(date, language())));
-  const run = () => {
-    body.querySelector("tr.selected")?.classList.remove("selected");
-    row.classList.add("selected");
-    activate();
-  };
-  row.addEventListener("click", run);
-  row.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") run();
-  });
-}
-
-// view = null (nothing selected) | { path, entries | null (loading) | error }
-// callbacks = { onNavigate(path), onOpen(entry, path), onRetry() }
-function renderFiles(container, view, callbacks) {
-  const message = (text, className = "placeholder muted") => container.replaceChildren(el("p", className, text));
-  if (!view) return message(t("files.pick"));
-  if (view.error) {
-    const p = el("p", "placeholder placeholder-error", view.error.message + " ");
-    const retry = el("button", "btn-secondary btn-sm", t("common.retry"));
-    retry.type = "button";
-    retry.addEventListener("click", callbacks.onRetry);
-    p.append(retry);
-    return container.replaceChildren(p);
-  }
-  if (!view.entries) return message(t("common.loading"));
-  if (view.entries.length === 0) return message(t("files.empty"));
-
-  const { table, body } = fileTable();
-  for (const entry of sortEntries(view.entries)) {
-    const name = el("span", "file-name", entry.name);
-    addRow(body, { kind: kindFor(entry.name, entry.isDir), name, title: entry.name, type: typeOf(entry), size: sizeOf(entry), date: entry.date }, () => {
-      const full = joinPath(view.path, entry.name);
-      if (entry.isDir) callbacks.onNavigate(full);
-      else callbacks.onOpen(entry, full);
-    });
-  }
-  container.replaceChildren(table);
-}
-
-// The name, with what matched the search in <mark>. Text nodes only.
-function highlighted(text, ranges) {
-  const span = el("span", "file-name");
-  let at = 0;
-  for (const [start, end] of ranges) {
-    if (start > at) span.append(text.slice(at, start));
-    span.append(el("mark", "", text.slice(start, end)));
-    at = end;
-  }
-  if (at < text.length) span.append(text.slice(at));
-  return span;
-}
-
-// view = { query, scope (a label), sites: [{ sc, ranges }], hits: [{ item, ranges }],
-//          total (hits before the display cap), progress (see search.js), maxFolders }
-// callbacks = { onOpenSite(sc), onOpenItem(item), onSearchAll (or null) }
-function renderResults(container, view, callbacks) {
-  const { query, scope, sites, hits, total, progress } = view;
-  const results = tn("count.results", sites.length + total);
-  const header = el("div", "search-header");
-  const status = el("p", "search-status");
-  status.setAttribute("aria-live", "polite");
-  status.textContent = !progress.done
-    ? t("search.running", { scope, folders: tn("count.foldersRead", progress.listed), results })
-    : t(sites.length + total ? "search.done" : "search.none", { query, scope, results });
-  header.append(status);
-  const notes = [];
-  if (total > hits.length) notes.push(t("search.capped", { n: hits.length }));
-  if (progress.truncated) notes.push(t("search.truncated", { max: view.maxFolders }));
-  if (progress.failed) notes.push(tn("search.failed", progress.failed));
-  for (const note of notes) header.append(el("p", "search-note", note));
-  if (callbacks.onSearchAll) {
-    const all = el("button", "btn-secondary btn-sm", t("search.allSites"));
-    all.type = "button";
-    all.addEventListener("click", callbacks.onSearchAll);
-    header.append(all);
-  }
-  if (!sites.length && !hits.length) return container.replaceChildren(header);
-
-  const { table, body } = fileTable();
-  for (const { sc, ranges } of sites) {
-    addRow(body, { kind: "site", name: highlighted(sc.label, ranges), title: sc.label, type: t("type.site"), size: "" },
-      () => callbacks.onOpenSite(sc));
-  }
-  for (const { item, ranges } of hits) {
-    const { entry, sc, parent } = item;
-    const where = [sc.label, ...parent.split("/").filter(Boolean)].join(" › ");
-    addRow(body, {
-      kind: kindFor(entry.name, entry.isDir),
-      name: highlighted(entry.name, ranges),
-      title: `${entry.name}\n${where}`,
-      below: el("span", "result-location", where),
-      type: typeOf(entry),
-      size: sizeOf(entry),
-      date: entry.date,
-    }, () => callbacks.onOpenItem(item));
-  }
-  container.replaceChildren(header, table);
-}
-
-export const files = { render: renderFiles, renderResults };

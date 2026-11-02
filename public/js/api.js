@@ -10,6 +10,7 @@
  *   listDir(id, path)                 [{ name, isDir, isLink, size, date }]
  *   fileUrl(id, path, { download })   URL for <img>, <video>, links
  *   playUrl(id, path)                 URL of a video as an MP4 the browser can play
+ *   prepareZip(id, paths, localTime)  { url, count, name }: a one-time link to those files as one ZIP
  *
  * Failures throw ApiError (status + the server's message). A 401 means the
  * session is over: the page goes back to the sign-in screen.
@@ -69,3 +70,7 @@ export function fileUrl(id, path, { download = false } = {}) {
 export function playUrl(id, path) {
   return `${shortcutUrl(id)}/play?path=${encodeURIComponent(path)}`;
 }
+
+// The server checks the list and answers with a link that works once, for
+// a couple of minutes; the browser's download list then shows the progress.
+export const prepareZip = (id, paths, localTime) => call("POST", `${shortcutUrl(id)}/zip`, { paths, localTime });

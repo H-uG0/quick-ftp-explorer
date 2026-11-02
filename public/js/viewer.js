@@ -1,41 +1,171 @@
 /*
- * viewer.js - in-app modal viewer for images, video and audio.
+ * viewer.js - the in-app viewer for images, video and audio: a modal
+ * <dialog> that steps through a list.
  *
- *   viewer.open({ name, kind, url, fallbackUrl, downloadUrl })   kind: "image" | "video" | "audio"
- *   viewer.close()
+ *   viewer.open(items, index, { describe, onShow, onRequestClose })
+ *     items             what Précédent / Suivant step through (rows of the list)
+ *     describe(item)    { name, kind, url, fallbackUrl, downloadUrl, caption, subtitle }
+ *     onShow(item, i)   each time a file is shown
+ *     onRequestClose()  Esc, Fermer or a click beside the media: the app closes
+ *                       through history, so the browser's Back button does too
+ *   viewer.close()      close now
+ *   viewer.isOpen(), viewer.current()
  *
  * Images: fit / 100% / zoom buttons, mouse-wheel zoom, drag to pan. Video and
  * audio use the browser's own player, which seeks through HTTP range
  * requests. When the browser can't decode a file, the viewer tries
  * fallbackUrl (the server's converted MP4) if there is one, and otherwise
- * says why and offers the download instead. Closing stops the stream, which
- * frees the server's FTP connection. Esc closes.
+ * says why and offers the download instead. Each step and the closing stop
+ * the stream, which frees the server's FTP connection; nothing is loaded in
+ * advance.
+ *
+ * Keys: Left/Right, Home/End and Page Up/Down step (the arrows seek instead
+ * while the player has the focus), Space plays or pauses, Esc closes.
  */
 
 import { el } from "./ui.js";
 import { t } from "./i18n.js";
+import { icon } from "./icons.js";
 
-let overlay = null, titleEl = null, downloadLink = null, body = null;
+let dialog = null, captionEl = null, subtitleEl = null, positionEl = null, prevBtn = null, nextBtn = null;
+let downloadLink = null, stage = null;
+let list = [], at = 0, options = null, openedAt = 0;
 
-function ensureOverlay() {
-  if (overlay) return;
-  overlay = el("div", "viewer-overlay");
-  overlay.hidden = true;
-  const header = el("div", "viewer-header");
-  titleEl = el("span", "viewer-title");
-  downloadLink = el("a", "btn-secondary btn-sm", t("viewer.download"));
-  downloadLink.setAttribute("download", "");
-  const closeBtn = el("button", "btn-secondary btn-sm", t("viewer.close"));
-  closeBtn.type = "button";
-  closeBtn.addEventListener("click", close);
-  header.append(titleEl, downloadLink, closeBtn);
-  body = el("div", "viewer-body");
-  overlay.append(header, body);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
-  document.body.append(overlay);
+function button(className, iconName, label, title, action) {
+  const b = el("button", `btn-secondary ${className}`);
+  b.type = "button";
+  if (iconName) b.append(icon(iconName));
+  b.append(el("span", "btn-label", label));
+  if (title) b.title = title;
+  b.addEventListener("click", action);
+  return b;
 }
+
+function ensureDialog() {
+  if (dialog) return;
+  dialog = el("dialog", "viewer");
+  dialog.id = "viewer";
+  dialog.setAttribute("aria-labelledby", "viewer-caption");
+
+  const nav = el("div", "viewer-nav");
+  prevBtn = button("viewer-prev", "prev", t("viewer.prev"), t("viewer.prevTip"), () => step(-1));
+  nextBtn = button("viewer-next", "next", t("viewer.next"), t("viewer.nextTip"), () => step(1));
+  positionEl = el("span", "viewer-position");
+  nav.append(prevBtn, positionEl, nextBtn);
+
+  const caption = el("div", "viewer-caption");
+  captionEl = el("span", "viewer-title");
+  captionEl.id = "viewer-caption";
+  subtitleEl = el("span", "viewer-subtitle");
+  caption.append(captionEl, subtitleEl);
+
+  downloadLink = el("a", "btn-secondary viewer-download");
+  downloadLink.append(icon("download"), el("span", "btn-label", t("viewer.download")));
+  downloadLink.setAttribute("download", "");
+  const closeBtn = button("viewer-close", "close", t("viewer.close"), t("viewer.closeTip"), requestClose);
+
+  stage = el("div", "viewer-body");
+  stage.tabIndex = -1;
+  dialog.append(nav, caption, downloadLink, closeBtn, stage);
+
+  dialog.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    requestClose();
+  });
+  dialog.addEventListener("keydown", onKey);
+  // For a moment after opening, a click is the end of the double-click (or
+  // double tap) that opened the viewer: it must not close or pause anything.
+  dialog.addEventListener("click", (e) => {
+    if (performance.now() - openedAt < 400) {
+      if (e.target === dialog || stage.contains(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      return;
+    }
+    if (e.target === dialog) requestClose();
+  }, true);
+  document.body.append(dialog);
+}
+
+function requestClose() {
+  if (isOpen()) options?.onRequestClose ? options.onRequestClose() : close();
+}
+
+function onKey(e) {
+  const media = e.target.closest?.("video, audio");
+  const control = e.target.closest?.("button, a");
+  switch (e.key) {
+    case "ArrowLeft": if (media) return; step(-1); break;
+    case "ArrowRight": if (media) return; step(1); break;
+    case "Home": if (media) return; show(0); break;
+    case "End": if (media) return; show(list.length - 1); break;
+    case "PageUp": step(-1); break;
+    case "PageDown": step(1); break;
+    case " ": {
+      if (media || control) return;
+      const player = stage.querySelector("video, audio");
+      if (!player) return;
+      if (player.paused) player.play().catch(() => {});
+      else player.pause();
+      break;
+    }
+    default: return;
+  }
+  e.preventDefault();
+}
+
+function step(delta) {
+  show(at + delta);
+}
+
+function show(index) {
+  if (index < 0 || index >= list.length) return;
+  at = index;
+  const item = options.describe(list[at]);
+  stopMedia();
+  captionEl.textContent = item.caption || item.name;
+  captionEl.title = item.name;
+  subtitleEl.textContent = item.subtitle || "";
+  subtitleEl.hidden = !item.subtitle;
+  positionEl.textContent = t("viewer.position", { n: at + 1, total: list.length });
+  positionEl.hidden = list.length < 2;
+  prevBtn.disabled = at === 0;
+  nextBtn.disabled = at === list.length - 1;
+  prevBtn.hidden = nextBtn.hidden = list.length < 2;
+  downloadLink.href = item.downloadUrl;
+  if (item.kind === "image") renderImage(item.url);
+  else renderMedia(item.kind, item.url, item.fallbackUrl);
+  options.onShow?.(list[at], at);
+}
+
+function open(items, index, opts) {
+  ensureDialog();
+  list = items;
+  options = opts;
+  openedAt = performance.now();
+  if (!dialog.open) dialog.showModal();
+  show(Math.max(0, Math.min(index, items.length - 1)));
+  stage.focus({ preventScroll: true });
+}
+
+// Dropping a media element's source aborts its HTTP request(s) at once.
+function stopMedia() {
+  for (const media of stage?.querySelectorAll("video, audio") ?? []) {
+    media.pause();
+    media.removeAttribute("src");
+    media.load();
+  }
+}
+
+function close() {
+  if (!isOpen()) return;
+  stopMedia();
+  stage.replaceChildren();
+  dialog.close();
+}
+
+const isOpen = () => !!dialog?.open;
 
 function showProblem(text) {
   const box = el("div", "viewer-message");
@@ -44,40 +174,7 @@ function showProblem(text) {
   link.href = downloadLink.href;
   link.setAttribute("download", "");
   box.append(hint, link);
-  body.replaceChildren(box);
-}
-
-function onKey(e) {
-  if (e.key === "Escape") close();
-}
-
-function open({ name, kind, url, fallbackUrl = null, downloadUrl }) {
-  ensureOverlay();
-  stopMedia();
-  titleEl.textContent = name;
-  titleEl.title = name;
-  downloadLink.href = downloadUrl;
-  if (kind === "image") renderImage(url);
-  else renderMedia(kind, url, fallbackUrl);
-  overlay.hidden = false;
-  document.addEventListener("keydown", onKey);
-}
-
-// Dropping a media element's source aborts its HTTP request(s) at once.
-function stopMedia() {
-  for (const media of body?.querySelectorAll("video, audio") ?? []) {
-    media.pause();
-    media.removeAttribute("src");
-    media.load();
-  }
-}
-
-function close() {
-  if (!overlay || overlay.hidden) return;
-  document.removeEventListener("keydown", onKey);
-  stopMedia();
-  body.replaceChildren();
-  overlay.hidden = true;
+  stage.replaceChildren(box);
 }
 
 // A media element doesn't expose the server's error message: ask for the
@@ -108,22 +205,28 @@ function renderMedia(kind, url, fallbackUrl) {
       media.src = fallback;
       fallback = null;
       status.textContent = t("viewer.converting");
-      if (!status.isConnected) body.append(status);   // gone if the first try got as far as metadata
+      if (!status.isConnected) stage.append(status);   // gone if the first try got as far as metadata
       return;
     }
     const message = await explain(src);
     if (media.getAttribute("src") === src) showProblem(message);   // unless the viewer moved on
   });
+  media.addEventListener("ended", () => {
+    if (options.autoplay?.() && at < list.length - 1) step(1);
+  });
   media.src = url;
-  body.replaceChildren(media, status);
+  stage.replaceChildren(media, status);
 }
 
 function renderImage(url) {
   const controls = el("div", "image-controls");
-  const button = (text, title, action) => {
+  const control = (text, label, action) => {
     const b = el("button", "btn-secondary btn-sm", text);
     b.type = "button";
-    if (title) b.title = title;
+    if (label) {
+      b.title = label;
+      b.setAttribute("aria-label", label);
+    }
     b.addEventListener("click", action);
     controls.append(b);
   };
@@ -131,7 +234,7 @@ function renderImage(url) {
   const img = el("img");
   img.alt = "";
   canvas.append(img);
-  body.replaceChildren(controls, canvas);
+  stage.replaceChildren(controls, canvas);
 
   let mode = "fit";   // "fit" | "natural" | "custom"
   let scale = 1;
@@ -156,10 +259,10 @@ function renderImage(url) {
     applyScale(scale * factor);
   }
 
-  button("−", t("viewer.zoomOut"), () => bump(1 / 1.25));
-  button(t("viewer.fit"), "", applyFit);
-  button("100%", "", () => { applyScale(1); mode = "natural"; });
-  button("+", t("viewer.zoomIn"), () => bump(1.25));
+  control("−", t("viewer.zoomOut"), () => bump(1 / 1.25));
+  control(t("viewer.fit"), "", applyFit);
+  control("100%", "", () => { applyScale(1); mode = "natural"; });
+  control("+", t("viewer.zoomIn"), () => bump(1.25));
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -191,4 +294,10 @@ function renderImage(url) {
   img.src = url;
 }
 
-export const viewer = { open, close };
+export const viewer = {
+  open,
+  close,
+  isOpen,
+  show,
+  current: () => (isOpen() ? list[at] : null),
+};
