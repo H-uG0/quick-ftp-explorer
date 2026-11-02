@@ -58,10 +58,11 @@
   --on-viewer-muted: oklch(0.75 0.015 245);
   --viewer-link: oklch(0.8 0.09 252);
 
-  /* Type in rem, so the browser's text-size setting applies. */
-  --fs-xs: 0.75rem;
-  --fs-sm: 0.8125rem;
-  --fs-md: 0.875rem;
+  /* Type in rem, so the browser's text-size setting applies; 13 px at the
+     least, for older eyes. */
+  --fs-xs: 0.8125rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 0.9375rem;
   --fs-lg: 1rem;
   --fs-xl: 1.25rem;
 
@@ -78,7 +79,7 @@ html, body {
   height: 100%;
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
   font-size: var(--fs-md);
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--text);
   background: var(--bg);
   -webkit-text-size-adjust: 100%;
@@ -147,7 +148,7 @@ a { color: var(--link); }
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 48px;
+  min-height: 48px;
   padding: 0 12px;
   background: var(--ink);
   color: var(--on-ink);
@@ -325,6 +326,36 @@ a { color: var(--link); }
   letter-spacing: 0.06em;
   color: var(--muted);
 }
+
+/* "Trouver un site", under the pane's title. */
+.site-find {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 8px 2px;
+}
+.site-find > .icon {
+  position: absolute;
+  left: 17px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.site-find input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 30px;
+  padding: 4px 30px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+}
+.site-find input::-webkit-search-cancel-button { display: none; }
+.site-find input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.site-find .search-clear { right: 11px; color: var(--muted); }
+.site-find .search-clear:hover { color: var(--text); background: var(--border-soft); }
+.tree-label mark { padding: 0; }
 
 /* ---- the sites tree (left pane) ---- */
 
@@ -546,7 +577,7 @@ a { color: var(--link); }
   text-overflow: ellipsis;
 }
 .file-table thead th {
-  height: var(--head-h);
+  height: var(--head-h);   /* a table cell's height is a minimum */
   box-sizing: border-box;
   padding-top: 0;
   padding-bottom: 0;
@@ -629,6 +660,22 @@ th[aria-sort] .sort-button { color: var(--text); }
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
+
+/* Day headings, under the column header while their day scrolls by. */
+.file-table .group-row th {
+  position: sticky;
+  top: var(--head-h);
+  z-index: 1;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.file-list.grouped { scroll-padding-top: calc(var(--head-h) + 30px); }
 
 .file-icon {
   display: inline-flex;
@@ -914,6 +961,16 @@ dialog::backdrop { background: oklch(0.2 0.03 245 / 0.45); }
 }
 .modal h3, .sheet h3 { margin: 0 0 14px; font-size: var(--fs-lg); }
 
+.help { width: 560px; }
+.help h4 { margin: 16px 0 6px; font-size: var(--fs-md); }
+.help-tips { margin: 0; padding-left: 20px; line-height: 1.6; }
+.help-keys { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.help-keys th, .help-keys td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.help-keys th { color: var(--text-soft); }
+.help-key { font-weight: 600; white-space: nowrap; }
+.help-open { display: inline-flex; gap: 4px; align-items: center; }
+.help-open .icon { width: 14px; height: 14px; flex-basis: 14px; }
+
 .link-field {
   width: 100%;
   box-sizing: border-box;
@@ -1025,6 +1082,17 @@ dialog::backdrop { background: oklch(0.2 0.03 245 / 0.45); }
   font-size: var(--fs-sm);
   color: var(--on-viewer-muted);
 }
+.viewer-autoplay {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  font-size: var(--fs-sm);
+  color: var(--on-viewer-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.viewer-autoplay input { width: 16px; height: 16px; margin: 0; accent-color: var(--on-viewer-muted); }
 .viewer-position { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; color: var(--on-viewer-muted); }
 .viewer .btn-secondary {
   color: var(--on-viewer);
@@ -1136,7 +1204,7 @@ audio.viewer-media {
 
 @media (max-width: 700px) {
   .menu-toggle { display: inline-flex; }
-  .topbar { gap: 6px; height: 56px; padding: 0 6px; }
+  .topbar { gap: 6px; min-height: 56px; padding: 0 6px; }
   .topbar .brand, .nav-buttons { display: none; }
   .topbar .btn-icon { width: 44px; min-height: 44px; flex-shrink: 0; }
 
@@ -1196,6 +1264,7 @@ audio.viewer-media {
 
   /* Touch targets of at least 44 px. */
   .tree-row { min-height: 44px; }
+  .site-find input { min-height: 44px; }
   .tree-toggle { width: 44px; height: 44px; flex-basis: 44px; }
   .btn-sm { min-height: 40px; }
 
@@ -1227,7 +1296,8 @@ audio.viewer-media {
     font-variant-numeric: tabular-nums;
   }
   .result-location { white-space: normal; }
-  .file-list { scroll-padding-top: 0; }
+  .file-list, .file-list.grouped { scroll-padding-top: 30px; }
+  .file-table .group-row th { top: 0; height: 36px; }
 
   .statusbar { display: none; }
   .toast { bottom: 16px; }
@@ -1252,6 +1322,8 @@ audio.viewer-media {
   .viewer-nav .btn-secondary { min-width: 64px; }
   .viewer-close .btn-label { display: none; }
   .viewer-close { min-width: 48px; }
+  .viewer-autoplay { display: none; }   /* a desk tool: reviewing clips one after another */
+  .help-key { white-space: normal; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1263,9 +1335,14 @@ audio.viewer-media {
 @media (forced-colors: active) {
   .file-table tbody tr.selected { background: Highlight; color: HighlightText; forced-color-adjust: none; }
   .file-table tbody tr.selected td { color: HighlightText; }
-  .tree-row.active { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+  .tree-row.active { outline: 2px solid Highlight; outline-offset: -2px; }
+  .tree-node:focus-visible > .tree-row,
+  .file-table tbody tr:focus-visible,
+  :focus-visible { outline: 2px solid Highlight; }
+  mark { background: Mark; color: MarkText; forced-color-adjust: none; }
   .check { border-color: CanvasText; }
-  .commandbar .filter-active, .chip { border: 2px solid Highlight; }
+  .file-table tbody tr.selected .check { background: Highlight; border-color: HighlightText; }
+  .commandbar .filter-active, .sheet .filter-active, .chip { border: 2px solid CanvasText; }
   .splitter::after { background: CanvasText; }
 }
 

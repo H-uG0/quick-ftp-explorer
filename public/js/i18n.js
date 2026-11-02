@@ -14,6 +14,7 @@
  *   formatDate(raw, lang)          an FTP listing's "Apr 01 2026" as "1 avr. 2026"
  *   formatDateTime(ms, precision)  "01/04/2026 14:34", as Windows lists times
  *   formatLongDateTime(ms, precision, lang)   "mercredi 1 avril 2026 à 14:34:00"
+ *   formatDayHeading(ms, lang)     "dimanche 1 novembre 2026", for the list's day headings
  *
  * In the browser, once useLanguage() has run:
  *   t(key, params) / tn(key, n, params)   translate into the page's language
@@ -71,6 +72,8 @@ export const MESSAGES = {
     "nav.forward": "Forward (Alt+Right arrow)",
     "nav.up": "Up to \"{parent}\" (Alt+Up arrow)",
     "nav.upPlain": "Up",
+    "nav.findSite": "Find a site",
+    "nav.noSiteMatch": "No site matches \"{query}\".",
     "share.copy": "Copy link",
     "share.copyMany": "Copy links",
     "share.share": "Share link",
@@ -86,6 +89,11 @@ export const MESSAGES = {
     "a11y.folder": "Folder, ",
     "a11y.site": "Site, ",
     "col.camera": "Camera",
+    "group.today": "Today — {date}",
+    "group.yesterday": "Yesterday — {date}",
+    "group.day": "{date}",
+    "group.unknown": "Unknown date",
+    "group.heading": "{label} · {count}",
     "col.date": "Date",
     "date.modified": "Modified on {date} (from the FTP server)",
     "date.recorded": "Recorded on {date} (from the file name)",
@@ -151,6 +159,33 @@ export const MESSAGES = {
     "menu.listLabel": "Folder actions",
     "kbd.ctrlA": "Ctrl+A",
     "refresh.failed": "Couldn't refresh: {reason}",
+    "help.open": "Help",
+    "help.title": "Help",
+    "help.findTitle": "Find a clip",
+    "help.find1": "Pick a site on the left: the newest clips come first.",
+    "help.find2": "Narrow the list with Period and Camera, above it.",
+    "help.find3": "Type several words in the search box, for example \"garage 0830\".",
+    "help.keysTitle": "Keyboard shortcuts",
+    "help.keyCol": "Keys",
+    "help.actionCol": "Action",
+    "kbd.searchKeys": "Ctrl+F or F3",
+    "kbd.search": "Go to the search box",
+    "kbd.openKeys": "Double-click or Enter",
+    "kbd.open": "Open",
+    "kbd.moveKeys": "Arrows, Home, End, Page Up, Page Down",
+    "kbd.move": "Move in the list or the tree",
+    "kbd.selectKeys": "Space, Ctrl+click, Shift+click",
+    "kbd.select": "Select several files",
+    "kbd.menuKeys": "Shift+F10 or the Menu key",
+    "kbd.menu": "Actions for the selection",
+    "kbd.viewerKeys": "Left/Right arrow, Page Up/Page Down",
+    "kbd.viewer": "Previous/next clip in the viewer",
+    "kbd.escKeys": "Esc",
+    "kbd.esc": "Close; clear the selection, then the search",
+    "kbd.navKeys": "Alt+Left, Alt+Right, Alt+Up, Backspace",
+    "kbd.nav": "Back, forward, up a level",
+    "kbd.helpKeys": "?",
+    "kbd.help": "This help",
 
     "search.label": "Search files and folders",
     "search.in": "Search {place}",
@@ -201,6 +236,8 @@ export const MESSAGES = {
     "viewer.position": "{n} of {total}",
     "viewer.caption": "{camera} · {time}",
     "viewer.nameIn": "{name} in {place}",
+    "viewer.autoplay": "Play one after another",
+    "viewer.autoplayNext": "Next: {caption}",
     "viewer.downloadInstead": "Download it instead",
     "viewer.cantPlay": "This file can't be played in this browser (unsupported format or codec). Download it to watch it in another player.",
     "viewer.converting": "Converting the video for this browser…",
@@ -320,6 +357,8 @@ export const MESSAGES = {
     "nav.forward": "Suivant (Alt+Flèche droite)",
     "nav.up": `Monter jusqu'à «${NB}{parent}${NB}» (Alt+Flèche haut)`,
     "nav.upPlain": "Monter",
+    "nav.findSite": "Trouver un site",
+    "nav.noSiteMatch": `Aucun site ne correspond à «${NB}{query}${NB}».`,
     "share.copy": "Copier le lien",
     "share.copyMany": "Copier les liens",
     "share.share": "Partager le lien",
@@ -335,6 +374,11 @@ export const MESSAGES = {
     "a11y.folder": "Dossier, ",
     "a11y.site": "Site, ",
     "col.camera": "Caméra",
+    "group.today": "Aujourd'hui — {date}",
+    "group.yesterday": "Hier — {date}",
+    "group.day": "{date}",
+    "group.unknown": "Date inconnue",
+    "group.heading": "{label} · {count}",
     "col.date": "Date",
     "date.modified": "Modifié le {date} (d'après le serveur FTP)",
     "date.recorded": "Enregistré le {date} (d'après le nom du fichier)",
@@ -400,6 +444,33 @@ export const MESSAGES = {
     "menu.listLabel": "Actions sur le dossier",
     "kbd.ctrlA": "Ctrl+A",
     "refresh.failed": `Actualisation impossible${NB}: {reason}`,
+    "help.open": "Aide",
+    "help.title": "Aide",
+    "help.findTitle": "Trouver un clip",
+    "help.find1": `Choisissez un site à gauche${NB}: les clips les plus récents sont en tête.`,
+    "help.find2": "Affinez la liste avec Période et Caméra, au-dessus d'elle.",
+    "help.find3": `Tapez plusieurs mots dans la recherche, par exemple «${NB}garage 0830${NB}».`,
+    "help.keysTitle": "Raccourcis clavier",
+    "help.keyCol": "Touches",
+    "help.actionCol": "Action",
+    "kbd.searchKeys": "Ctrl+F ou F3",
+    "kbd.search": "Aller à la recherche",
+    "kbd.openKeys": "Double-clic ou Entrée",
+    "kbd.open": "Ouvrir",
+    "kbd.moveKeys": "Flèches, Origine, Fin, Pg. préc., Pg. suiv.",
+    "kbd.move": "Se déplacer dans la liste ou l'arborescence",
+    "kbd.selectKeys": "Espace, Ctrl+clic, Maj+clic",
+    "kbd.select": "Sélectionner plusieurs fichiers",
+    "kbd.menuKeys": "Maj+F10 ou la touche Menu",
+    "kbd.menu": "Actions sur la sélection",
+    "kbd.viewerKeys": "Flèche gauche/droite, Pg. préc./Pg. suiv.",
+    "kbd.viewer": "Clip précédent/suivant dans la visionneuse",
+    "kbd.escKeys": "Échap",
+    "kbd.esc": `Fermer${NNB}; effacer la sélection, puis la recherche`,
+    "kbd.navKeys": "Alt+Flèche gauche, Alt+Flèche droite, Alt+Flèche haut, Retour arrière",
+    "kbd.nav": "Précédent, suivant, dossier parent",
+    "kbd.helpKeys": "?",
+    "kbd.help": "Cette aide",
 
     "search.label": "Rechercher des fichiers et des dossiers",
     "search.in": "Rechercher dans {place}",
@@ -450,6 +521,8 @@ export const MESSAGES = {
     "viewer.position": "{n} sur {total}",
     "viewer.caption": "{camera} · {time}",
     "viewer.nameIn": "{name} dans {place}",
+    "viewer.autoplay": "Lecture enchaînée",
+    "viewer.autoplayNext": `Suivant${NB}: {caption}`,
     "viewer.downloadInstead": "Le télécharger",
     "viewer.cantPlay": "Ce fichier ne peut pas être lu dans ce navigateur (format ou codec non pris en charge). Téléchargez-le pour le regarder dans un autre lecteur.",
     "viewer.converting": "Conversion de la vidéo pour ce navigateur…",
@@ -629,6 +702,15 @@ export function formatLongDateTime(ms, precision = "minute", lang = "en") {
     longFormats.set(key, format);
   }
   return format.format(ms);
+}
+
+const dayFormats = new Map();
+export function formatDayHeading(ms, lang = "en") {
+  const locale = LOCALES[valid(lang)];
+  if (!dayFormats.has(locale)) {
+    dayFormats.set(locale, new Intl.DateTimeFormat(locale, { weekday: "long", day: "numeric", month: "long", year: "numeric" }));
+  }
+  return dayFormats.get(locale).format(ms);
 }
 
 /* ---- in the browser ---- */

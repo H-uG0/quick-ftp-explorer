@@ -8,7 +8,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   describeEntry, columnsFor, sortRows, sortFor, sortId, SORTS, periodRange, applyFilters, facets, activeFilters,
-  newestTime, playlist, NO_FILTERS, PERIODS,
+  newestTime, playlist, groupByDay, NO_FILTERS, PERIODS,
 } from "../public/js/listview.js";
 
 const local = (...parts) => new Date(...parts).getTime();
@@ -199,6 +199,37 @@ describe("filters", () => {
   test("the newest file", () => {
     assert.deepEqual(newestTime(list), { ms: local(2026, 9, 31, 14, 30), precision: "minute" });
     assert.equal(newestTime(rows([dir("Archives"), file("notes.txt")])), null);
+  });
+});
+
+describe("day headings", () => {
+  const now = new Date(2026, 10, 1, 15, 0);   // Sunday 1 November 2026, 15:00
+  const list = sortRows(rows([
+    dir("Archives"),
+    file("9_Cam 1_202611011430.avi"),
+    file("9_Cam 1_202611020005.avi"),          // a fast clock: tomorrow, counted as today
+    file("9_Cam 1_202610312350.avi"),
+    file("9_Cam 1_202610302350.avi"),
+    file("9_Cam 1_202610300010.avi"),
+    file("9_Cam 1_202610250130.avi"),          // the day the clocks went back
+    file("notes.txt"),
+  ]), sortFor("dateDesc"));
+  const shape = (groups) => groups.map((g) => [g.kind, g.day, g.rows.length]);
+
+  test("folders first, then one group per local day, undated last", () => {
+    assert.deepEqual(shape(groupByDay(list, now)), [
+      ["folders", null, 1],
+      ["today", local(2026, 10, 1), 2],
+      ["yesterday", local(2026, 9, 31), 1],
+      ["day", local(2026, 9, 30), 2],
+      ["day", local(2026, 9, 25), 1],
+      ["unknown", null, 1],
+    ]);
+  });
+
+  test("oldest first too", () => {
+    const asc = groupByDay(sortRows(list, sortFor("dateAsc")), now);
+    assert.deepEqual(asc.map((g) => g.kind), ["folders", "day", "day", "yesterday", "today", "unknown"]);
   });
 });
 

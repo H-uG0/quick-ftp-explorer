@@ -10,6 +10,7 @@
  *   facets(rows, filters, now)             the cameras and kinds to choose from, counted
  *   activeFilters(filters)                 [{ name, value }] for chips and messages
  *   newestTime(rows)                       { ms, precision } of the newest file, or null
+ *   groupByDay(rows, now)                  [{ kind, day, rows }]: day headings for a date sort
  *   playlist(rows, key, selected)          { items, index }: what the viewer steps through
  *
  * A row's date is when the clip was recorded, read from its name, else when
@@ -223,6 +224,33 @@ export function newestTime(rows) {
     if (!row.isDir && row.time !== null && (!newest || row.time > newest.ms)) newest = { ms: row.time, precision: row.precision };
   }
   return newest;
+}
+
+/* ---- day headings ---- */
+
+// For a list sorted by date: folders first, without a heading, then one
+// group per local day in the list's order, and files without a date last.
+// kind: "folders" | "today" | "yesterday" | "day" | "unknown"; day is the
+// local midnight. A clip a little in the future (a fast camera clock)
+// counts as today.
+export function groupByDay(rows, now = new Date()) {
+  const today = startOfDay(now), yesterday = startOfDay(now, 1);
+  const groups = [];
+  for (const row of rows) {
+    let kind, day = null;
+    if (row.isDir) kind = "folders";
+    else if (row.time === null) kind = "unknown";
+    else {
+      const d = new Date(row.time);
+      day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      kind = day >= today ? "today" : day >= yesterday ? "yesterday" : "day";
+      if (kind === "today") day = today;
+    }
+    const last = groups.at(-1);
+    if (last && last.kind === kind && last.day === day) last.rows.push(row);
+    else groups.push({ kind, day, rows: [row] });
+  }
+  return groups;
 }
 
 /* ---- the viewer's list ---- */

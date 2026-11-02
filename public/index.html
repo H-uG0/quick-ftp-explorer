@@ -58,6 +58,13 @@
           <span class="pane-title" data-i18n="nav.shortcuts">Sites</span>
           <button type="button" id="new-shortcut" class="btn-secondary btn-sm" data-i18n="sc.newButton" hidden>+ New site</button>
         </div>
+        <div class="site-find" role="search">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25"/><path d="m10.25 10.25 3.5 3.5"/></svg>
+          <input type="search" id="site-find" autocomplete="off" placeholder="Find a site" aria-label="Find a site" data-i18n-attr="placeholder: nav.findSite; aria-label: nav.findSite" />
+          <button type="button" id="site-find-clear" class="search-clear" aria-label="Clear search" title="Clear search" data-i18n-attr="aria-label: search.clear; title: search.clear" hidden>
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+          </button>
+        </div>
         <ul id="shortcut-list" class="shortcut-list"></ul>
         <p id="empty-hint" class="muted empty-hint" hidden></p>
         <div id="drawer-foot" class="drawer-foot"></div>
@@ -130,6 +137,7 @@
       <span class="status-spacer"></span>
       <div id="account" class="account">
         <span id="status-user" class="muted"></span>
+        <button type="button" id="help-open" class="link-button help-open"><span data-i18n="help.open">Help</span></button>
         <button type="button" id="lang-switch" class="link-button"></button>
         <form method="post" action="/logout">
           <button type="submit" class="link-button" data-i18n="auth.signOut">Sign out</button>
@@ -138,6 +146,24 @@
     </footer>
 
     <div id="announcer" class="sr-only" role="status"></div>
+
+    <dialog id="help-dialog" class="modal help" aria-labelledby="help-title">
+      <h3 id="help-title" data-i18n="help.title">Help</h3>
+      <h4 data-i18n="help.findTitle">Find a clip</h4>
+      <ol class="help-tips">
+        <li data-i18n="help.find1"></li>
+        <li data-i18n="help.find2"></li>
+        <li data-i18n="help.find3"></li>
+      </ol>
+      <h4 data-i18n="help.keysTitle">Keyboard shortcuts</h4>
+      <table class="help-keys">
+        <thead><tr><th scope="col" data-i18n="help.keyCol">Keys</th><th scope="col" data-i18n="help.actionCol">Action</th></tr></thead>
+        <tbody id="help-keys"></tbody>
+      </table>
+      <div class="modal-actions">
+        <button type="button" id="help-close" data-i18n="common.close">Close</button>
+      </div>
+    </dialog>
 
     <dialog id="link-dialog" class="modal" aria-labelledby="link-dialog-title">
       <h3 id="link-dialog-title" data-i18n="share.dialogTitle">Copy this link</h3>

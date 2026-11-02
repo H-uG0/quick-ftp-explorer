@@ -9,7 +9,9 @@
  *   tree.reveal(sc, path)                 open every ancestor and select a folder (onSelect)
  *   tree.selectHome()                     select "Tous les sites"
  *   tree.refresh(sc, path, { quiet })     load a listing again
- *   tree.focus(), tree.itemAt(target)
+ *   tree.find(query)                      show only the sites whose label has every word
+ *                                         (plus the open one); -> the first match, or null
+ *   tree.focusFirstSite(), tree.focus(), tree.itemAt(target)
  *
  * The tree shows "Tous les sites", then each site with its FOLDERS only;
  * files go in the list. One Tab stop: Up/Down move, Right opens a branch or
@@ -21,7 +23,7 @@
  */
 
 import * as api from "./api.js";
-import { joinPath, sortEntries, typeAhead } from "./util.js";
+import { joinPath, sortEntries, typeAhead, searchTerms, matchName } from "./util.js";
 import { t } from "./i18n.js";
 import { icon } from "./icons.js";
 
@@ -45,6 +47,7 @@ const state = {
   activeKey: null,
 };
 let typed = "", typedAt = 0;
+let findQuery = "", findTerms = [];   // "Trouver un site"
 
 /* ---- listings ---- */
 
@@ -95,11 +98,33 @@ function homeNode() {
   return li;
 }
 
+// While "Trouver un site" holds words, only the sites matching all of them
+// show, and the open one.
+const findMatch = (sc) => (findTerms.length ? matchName(sc.label, findTerms) : null);
+const siteShown = (sc) => !findTerms.length || !!findMatch(sc) || siteOf(state.activeKey) === sc.id;
+
 function renderAll() {
   const focusedKey = rootEl.contains(document.activeElement) ? document.activeElement.closest("li")?.dataset.key : null;
-  rootEl.replaceChildren(homeNode(), ...state.shortcuts.map((sc) => buildNode(sc, "/", sc.label, 1)));
+  const sites = state.shortcuts.filter(siteShown);
+  const nodes = [homeNode(), ...sites.map((sc) => buildNode(sc, "/", sc.label, 1))];
+  if (findTerms.length && !state.shortcuts.some(findMatch)) {
+    nodes.push(el("li", "tree-message", t("nav.noSiteMatch", { query: findQuery.trim() })));
+  }
+  rootEl.replaceChildren(...nodes);
   setTabStop();
   if (focusedKey) itemEl(focusedKey)?.focus({ preventScroll: true });
+}
+
+// The label, with the words found in <mark>. Text nodes only.
+function markLabel(labelEl, text, ranges) {
+  labelEl.replaceChildren();
+  let at = 0;
+  for (const [start, end] of ranges) {
+    if (start > at) labelEl.append(text.slice(at, start));
+    labelEl.append(el("mark", "", text.slice(start, end)));
+    at = end;
+  }
+  if (at < text.length) labelEl.append(text.slice(at));
 }
 
 function buildNode(sc, path, label, level) {
@@ -108,6 +133,8 @@ function buildNode(sc, path, label, level) {
   const { li, row, toggle, labelEl } = treeItem(key, level, label, isRoot ? "site" : "folder");
   // Admins also know where the server lives; everyone else just sees the label.
   labelEl.title = isRoot ? (sc.host ? `${sc.label}  (${sc.host}:${sc.port})` : sc.label) : path;
+  const ranges = isRoot && findMatch(sc);
+  if (ranges) markLabel(labelEl, label, ranges);
   if (isRoot && hooks.admin && siteOf(state.activeKey) === sc.id) {
     const more = el("button", "btn-icon tree-more");
     more.type = "button";
@@ -363,6 +390,20 @@ export const tree = {
   focus() {
     const li = (state.activeKey && itemEl(state.activeKey)) || rootEl.querySelector("li.tree-node");
     li?.focus();
+  },
+
+  find(query) {
+    findQuery = query;
+    findTerms = searchTerms(query);
+    renderAll();
+    return findTerms.length ? state.shortcuts.find(findMatch) ?? null : null;
+  },
+
+  focusFirstSite() {
+    const li = rootEl.querySelector("li.tree-node:not(.tree-home)") ?? rootEl.querySelector("li.tree-node");
+    if (!li) return;
+    setTabStop(li.dataset.key);
+    li.focus();
   },
 
   // { home: true } | { sc, path, isRoot } | null

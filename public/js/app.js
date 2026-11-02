@@ -27,17 +27,19 @@ import { grid } from "./grid.js";
 import { toolbar } from "./toolbar.js";
 import { viewer } from "./viewer.js";
 import { openMenu } from "./menu.js";
-import { layers, onShortcut, announce, isTypingTarget } from "./keys.js";
+import { layers, onShortcut, announce, isTypingTarget, SHORTCUTS } from "./keys.js";
 import { prefs } from "./prefs.js";
 import * as sel from "./selection.js";
 import { kindFor, inlineType } from "./filetypes.js";
 import { scan, LIMITS } from "./search.js";
+import { icon } from "./icons.js";
 import {
   describeEntry, columnsFor, sortRows, sortFor, sortId, DEFAULT_SORT, FIRST_DIR, applyFilters, facets, activeFilters,
-  newestTime, playlist, NO_FILTERS, viewable,
+  newestTime, playlist, groupByDay, NO_FILTERS, viewable,
 } from "./listview.js";
 import {
   useLanguage, browserLanguage, translatePage, switchLanguage, t, tn, language, formatSize, formatDateTime,
+  formatDayHeading,
 } from "./i18n.js";
 import {
   splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchFolded, matchName, parentPath,
@@ -266,11 +268,16 @@ function renderView() {
     selection = sel.click(sel.EMPTY, rows.map((r) => r.key), pendingSelect);
   }
 
+  // Sorted by date: a heading per day, as Explorer groups its Downloads.
+  const groups = !home && effective.key === "date" && rows.some((r) => !r.isDir)
+    ? groupByDay(rows, now).map((g) => ({ label: dayLabel(g), rows: g.rows }))
+    : null;
+
   let empty = view.empty;
   if (!rows.length && all.length && hidden) empty = filteredOutNode(all);
   const id = `${viewName()}:${searching?.key ?? ""}:${current ? current.shortcut.id + "::" + current.path : ""}`;
   grid.render(fileList, {
-    id, label: view.label, mode: view.mode, columns, sort: effective, rows,
+    id, label: view.label, mode: view.mode, columns, sort: effective, rows, groups,
     checkboxes: !home && !narrow.matches, selecting: false,
     marks: view.marks ?? new Map(), places: view.places ?? new Map(), empty,
   }, gridCallbacks);
@@ -316,6 +323,18 @@ function renderView() {
 }
 
 let renderState = null;
+
+// "Aujourd'hui — dimanche 1 novembre 2026 · 12 éléments"
+function dayLabel(group) {
+  if (group.kind === "folders") return null;
+  const count = tn("count.items", group.rows.length);
+  if (group.kind === "unknown") return t("group.heading", { label: t("group.unknown"), count });
+  const date = formatDayHeading(group.day, language());
+  const label = group.kind === "today" ? t("group.today", { date })
+    : group.kind === "yesterday" ? t("group.yesterday", { date })
+    : t("group.day", { date: date.charAt(0).toUpperCase() + date.slice(1) });
+  return t("group.heading", { label, count });
+}
 
 // The status bar and the command bar, from the last render and the selection.
 function updateChrome() {
@@ -715,7 +734,6 @@ function openViewer(row, { push = true } = {}) {
       history.replaceState({ ...history.state, viewer: { key: shownRow.key } }, "", location.href);
     },
     onRequestClose: () => history.back(),
-    autoplay: () => prefs.get("autoplay"),
     copyLink: (shownRow) => copyLinks([shownRow]),
   });
 }
@@ -1023,10 +1041,65 @@ onShortcut((name, e) => {
       if (isTypingTarget(e.target) || entryIdx() === 0) return false;
       history.back();
       return true;
+    case "help":
+      openHelp();
+      return true;
     default:
       return false;
   }
 });
+
+/* ---- "Trouver un site" ---- */
+
+const siteFind = $("site-find");
+const siteFindClear = $("site-find-clear");
+function clearSiteFind() {
+  siteFind.value = "";
+  siteFindClear.hidden = true;
+  tree.find("");
+}
+siteFind.addEventListener("input", () => {
+  siteFindClear.hidden = !siteFind.value;
+  tree.find(siteFind.value);
+});
+siteFind.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    const sc = tree.find(siteFind.value);
+    if (sc) tree.reveal(sc, "/");
+  } else if (e.key === "ArrowDown") {
+    tree.focusFirstSite();
+  } else if (e.key === "Escape" && siteFind.value) {
+    clearSiteFind();
+    e.stopPropagation();   // and the drawer stays open
+  } else {
+    return;
+  }
+  e.preventDefault();
+});
+siteFindClear.addEventListener("click", () => {
+  clearSiteFind();
+  siteFind.focus();
+});
+
+/* ---- help ---- */
+
+const helpDialog = $("help-dialog");
+function openHelp() {
+  const body = $("help-keys");
+  if (!body.children.length) {
+    for (const [keys, action] of SHORTCUTS) {
+      const tr = el("tr");
+      tr.append(el("td", "help-key", t(keys)), el("td", "", t(action)));
+      body.append(tr);
+    }
+  }
+  if (narrow.matches) setDrawer(false);
+  if (!helpDialog.open) helpDialog.showModal();
+  $("help-close").focus();
+}
+$("help-open").prepend(icon("help"));
+$("help-open").addEventListener("click", openHelp);
+$("help-close").addEventListener("click", () => helpDialog.close());
 
 $("skip").addEventListener("click", () => {
   const row = grid.focusedRow() ?? shownRows[0];

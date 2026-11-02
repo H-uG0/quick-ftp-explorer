@@ -11,6 +11,7 @@ import path from "node:path";
 import { readdirSync, readFileSync } from "node:fs";
 import {
   MESSAGES, translate, plural, msg, pickLanguage, formatSize, formatDate, formatDateTime, formatLongDateTime,
+  formatDayHeading,
 } from "../public/js/i18n.js";
 import { startApp, PASSWORD } from "./helpers/app.js";
 
@@ -117,6 +118,8 @@ test("times as Windows lists them, and in full for tooltips", () => {
   assert.equal(formatLongDateTime(ms, "minute", "fr"), "mercredi 1 avril 2026 à 14:34");
   assert.equal(formatLongDateTime(ms, "day", "fr"), "mercredi 1 avril 2026");
   assert.match(formatLongDateTime(ms, "minute", "en"), /^Wednesday,? 1 April 2026 at 14:34$/);
+  assert.equal(formatDayHeading(new Date(2026, 10, 1).getTime(), "fr"), "dimanche 1 novembre 2026");
+  assert.match(formatDayHeading(new Date(2026, 10, 1).getTime(), "en"), /^Sunday,? 1 November 2026$/);
 });
 
 describe("the server answers errors in the reader's language", () => {

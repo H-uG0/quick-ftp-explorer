@@ -9,7 +9,6 @@
  *     onRequestClose()  Esc, Fermer or a click beside the media: the app closes
  *                       through history, so the browser's Back button does too
  *     copyLink(item)    "Copier le lien" in the header, when given
- *     autoplay()        true to play the next clip when one ends
  *   viewer.close()      close now
  *   viewer.isOpen(), viewer.current()
  *
@@ -23,15 +22,19 @@
  *
  * Keys: Left/Right, Home/End and Page Up/Down step (the arrows seek instead
  * while the player has the focus), Space plays or pauses, Esc closes.
+ * "Lecture enchaînée" (remembered) plays the next video a second after one
+ * ends; a key, a click or Précédent in that second cancels it.
  */
 
 import { el } from "./ui.js";
 import { t } from "./i18n.js";
 import { icon } from "./icons.js";
+import { prefs } from "./prefs.js";
+import { announce } from "./keys.js";
 
 let dialog = null, captionEl = null, subtitleEl = null, positionEl = null, prevBtn = null, nextBtn = null;
-let downloadLink = null, linkBtn = null, stage = null;
-let list = [], at = 0, options = null, openedAt = 0;
+let downloadLink = null, linkBtn = null, stage = null, chain = null, chainBox = null;
+let list = [], at = 0, options = null, openedAt = 0, chainTimer = 0;
 
 function button(className, iconName, label, title, action) {
   const b = el("button", `btn-secondary ${className}`);
@@ -53,7 +56,12 @@ function ensureDialog() {
   prevBtn = button("viewer-prev", "prev", t("viewer.prev"), t("viewer.prevTip"), () => step(-1));
   nextBtn = button("viewer-next", "next", t("viewer.next"), t("viewer.nextTip"), () => step(1));
   positionEl = el("span", "viewer-position");
-  nav.append(prevBtn, positionEl, nextBtn);
+  chain = el("label", "viewer-autoplay");
+  chainBox = el("input");
+  chainBox.type = "checkbox";
+  chainBox.addEventListener("change", () => prefs.set("autoplay", chainBox.checked));
+  chain.append(chainBox, el("span", "", t("viewer.autoplay")));
+  nav.append(prevBtn, positionEl, nextBtn, chain);
 
   const caption = el("div", "viewer-caption");
   captionEl = el("span", "viewer-title");
@@ -76,6 +84,8 @@ function ensureDialog() {
     requestClose();
   });
   dialog.addEventListener("keydown", onKey);
+  dialog.addEventListener("keydown", cancelChain, true);
+  dialog.addEventListener("pointerdown", cancelChain, true);
   // For a moment after opening, a click is the end of the double-click (or
   // double tap) that opened the viewer: it must not close or pause anything.
   dialog.addEventListener("click", (e) => {
@@ -122,8 +132,14 @@ function step(delta) {
   show(at + delta);
 }
 
+function cancelChain() {
+  clearTimeout(chainTimer);
+  chainTimer = 0;
+}
+
 function show(index) {
   if (index < 0 || index >= list.length) return;
+  cancelChain();
   at = index;
   const item = options.describe(list[at]);
   stopMedia();
@@ -137,6 +153,8 @@ function show(index) {
   nextBtn.disabled = at === list.length - 1;
   prevBtn.hidden = nextBtn.hidden = list.length < 2;
   downloadLink.href = item.downloadUrl;
+  chain.hidden = item.kind !== "video" || list.length < 2;
+  chainBox.checked = prefs.get("autoplay");
   if (item.kind === "image") renderImage(item.url);
   else renderMedia(item.kind, item.url, item.fallbackUrl);
   options.onShow?.(list[at], at);
@@ -164,6 +182,7 @@ function stopMedia() {
 
 function close() {
   if (!isOpen()) return;
+  cancelChain();
   stopMedia();
   stage.replaceChildren();
   dialog.close();
@@ -216,7 +235,10 @@ function renderMedia(kind, url, fallbackUrl) {
     if (media.getAttribute("src") === src) showProblem(message);   // unless the viewer moved on
   });
   media.addEventListener("ended", () => {
-    if (options.autoplay?.() && at < list.length - 1) step(1);
+    if (!chainBox.checked || at >= list.length - 1) return;
+    const next = options.describe(list[at + 1]);
+    announce(t("viewer.autoplayNext", { caption: next.caption || next.name }));
+    chainTimer = setTimeout(() => step(1), 1000);
   });
   media.src = url;
   stage.replaceChildren(media, status);

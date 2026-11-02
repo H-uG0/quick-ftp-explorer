@@ -8,12 +8,26 @@
  *                               "menu" (Shift+F10, the Menu key), "up" (Alt+Up),
  *                               "back" (Backspace) and "help" (?); return true to take the key
  *   announce(text)              say it once, politely, through the #announcer region
+ *   SHORTCUTS                   [keys, action] text keys, for the help and the manuals
  *
  * Esc closes only the topmost layer. Native dialogs close themselves (their
  * cancel event), and the list and the search box use Esc for the selection
  * and the search, so the layers only get an Esc nobody else took. F5, Ctrl+L,
  * Alt+Left/Right and the browser's other keys are left alone.
  */
+
+// What the help lists, in its order: [the keys, what they do].
+export const SHORTCUTS = [
+  ["kbd.searchKeys", "kbd.search"],
+  ["kbd.openKeys", "kbd.open"],
+  ["kbd.moveKeys", "kbd.move"],
+  ["kbd.selectKeys", "kbd.select"],
+  ["kbd.menuKeys", "kbd.menu"],
+  ["kbd.viewerKeys", "kbd.viewer"],
+  ["kbd.escKeys", "kbd.esc"],
+  ["kbd.navKeys", "kbd.nav"],
+  ["kbd.helpKeys", "kbd.help"],
+];
 
 export function isTypingTarget(el) {
   if (!el || !(el instanceof Element)) return false;

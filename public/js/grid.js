@@ -9,6 +9,7 @@
  *   grid.rowAt(target), grid.rows(), grid.table(), grid.focusedRow()
  *
  *   model = { id, label, mode: "folder" | "search" | "home", columns, sort, rows,
+ *             groups: [{ label, rows }] (day headings, or none),
  *             checkboxes, marks: Map(key -> ranges), places: Map(key -> text), empty }
  *   callbacks = { selection(), select(state), open(row), sort(key), middle(row), escape() }
  *
@@ -100,8 +101,10 @@ function buildRow(row) {
   if (row.isDir) name.append(el("span", "sr-only", t(row.kind === "site" ? "a11y.site" : "a11y.folder")));
   name.append(nameNode(row.name, model.marks.get(row.key)));
   if (model.places.has(row.key)) name.append(el("span", "result-location", model.places.get(row.key)));
-  // Phones show one line under the name instead of the other columns.
-  const meta = [row.isDir || row.kind === "site" ? "" : dateText(row), row.camera, sizeText(row)].filter(Boolean).join(" · ");
+  // Phones show one line under the name instead of the other columns; under
+  // a day heading, the time is enough.
+  const when = row.isDir ? "" : model.groups && row.time !== null && row.precision !== "day" ? dateText(row).slice(11) : dateText(row);
+  const meta = [when, row.camera, sizeText(row)].filter(Boolean).join(" · ");
   if (meta) name.append(el("span", "row-meta", meta));
   tr.append(name);
 
@@ -178,15 +181,30 @@ function render(target, nextModel, nextCallbacks) {
   tableEl.setAttribute("aria-label", model.label);
   tableEl.classList.toggle("with-checks", model.checkboxes);
   tableEl.append(buildHead());
-  body = el("tbody");
-  const rows = document.createDocumentFragment();
-  for (const row of model.rows) {
-    const tr = buildRow(row);
-    rowEls.set(row.key, tr);
-    rows.append(tr);
+  // One <tbody> per day heading; the headings take no focus, and the keys
+  // and range selection go by `order`, which skips them.
+  const span = model.columns.length + (model.checkboxes ? 1 : 0);
+  const bodies = document.createDocumentFragment();
+  for (const group of model.groups ?? [{ label: null, rows: model.rows }]) {
+    const tbody = el("tbody");
+    if (group.label) {
+      const heading = el("tr", "group-row");
+      const th = el("th", "", group.label);
+      th.scope = "rowgroup";
+      th.colSpan = span;
+      heading.append(th);
+      tbody.append(heading);
+    }
+    for (const row of group.rows) {
+      const tr = buildRow(row);
+      rowEls.set(row.key, tr);
+      tbody.append(tr);
+    }
+    bodies.append(tbody);
   }
-  body.append(rows);
-  tableEl.append(body);
+  tableEl.append(bodies);
+  body = tableEl;
+  container.classList.toggle("grouped", !!model.groups);
   wire();
   container.replaceChildren(tableEl);
   container.scrollTop = scrollTop;
