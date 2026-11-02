@@ -2,8 +2,9 @@
  * routes.js - the application: wires config, accounts, shortcuts, the audit
  * trail and static files into the route table.
  *
- *   createApp(cfg, { log, ftp, video }) -> { handler, users, shortcuts, audit, converter }
- *                                   (`ftp` / `video` override gateway / converter options, for tests)
+ *   createApp(cfg, { log, ftp, video, zip }) -> { handler, users, shortcuts, audit, converter }
+ *                                   (`ftp` / `video` / `zip` override gateway / converter /
+ *                                   ZIP export options, for tests)
  *
  * Pages:  GET /  GET /login  POST /login  POST /logout
  * API:    GET /api/me
@@ -12,20 +13,24 @@
  *         GET /api/shortcuts/:id/list?path=      folder listing
  *         GET|HEAD /api/shortcuts/:id/file?path=[&download=1]   file stream (Range)
  *         GET|HEAD /api/shortcuts/:id/play?path=   a video as an MP4 the browser can play (Range)
+ *         POST /api/shortcuts/:id/zip            { paths, localTime? } -> { url, count, name }
+ *         GET|HEAD /api/zip/:token               that url, once: the files as one ZIP, streamed
  * Ops:    GET /healthz
  *
  * FTP passwords never appear in any response.
  */
 
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   createHandler, loadStatic, sendFile, sendJson, readJson, readForm, redirect, serializeCookie, parseCookies,
+  requestLanguage,
 } from "./http.js";
 import { createUserStore, createSessions, createLimiter, loadSessionSecret } from "./auth.js";
 import { createShortcutStore } from "./store.js";
-import { createGateway, parseRemotePath } from "./ftp.js";
+import { createGateway, parseRemotePath, contentDisposition } from "./ftp.js";
 import { createConverter, sendVideo } from "./video.js";
 import { createAudit } from "./audit.js";
 import { HttpError } from "./http.js";
@@ -38,8 +43,51 @@ const SHORTCUT_PATH = new RegExp(`^/api/shortcuts/${ID}$`);
 const LIST_PATH = new RegExp(`^/api/shortcuts/${ID}/list$`);
 const FILE_PATH = new RegExp(`^/api/shortcuts/${ID}/file$`);
 const PLAY_PATH = new RegExp(`^/api/shortcuts/${ID}/play$`);
+const ZIP_PATH = new RegExp(`^/api/shortcuts/${ID}/zip$`);
+const ZIP_LINK = /^\/api\/zip\/(?<token>[A-Za-z0-9_-]+)$/;
 
-export async function createApp(cfg, { log, ftp, video } = {}) {
+const ZIP_DEFAULTS = {
+  ttlMs: 2 * 60_000,     // the page follows its link at once
+  maxConcurrent: 2,      // archives streaming at once, across the server
+  maxFiles: 200,         // per archive
+  linksPerUser: 10,      // waiting links one account may hold; the oldest goes first
+};
+
+/* ---- ZIP export helpers ---- */
+
+// 1 to `max` file paths, none twice once normalized ("//a//b" is "/a/b").
+function zipPaths(raw, max) {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > max) throw new HttpError(400, msg("err.zipCount", { max }));
+  const paths = raw.map((p) => {
+    const segments = typeof p === "string" ? parseRemotePath(p) : [];
+    if (!segments.length) throw new HttpError(400, msg("err.badPath"));
+    return "/" + segments.join("/");
+  });
+  if (new Set(paths).size !== paths.length) throw new HttpError(400, msg("err.zipDuplicate"));
+  return paths;
+}
+
+// The browser's wall clock ("2026-11-01T15:58"), so that the archive's name
+// says the time its user sees; the server's own when that is missing or wrong.
+function localTime(raw, now = new Date()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d)$/.exec(typeof raw === "string" ? raw : "");
+  if (m) {
+    const [year, month, day] = m.slice(1, 4).map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (year >= 1980 && year <= 2107 && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return raw;
+  }
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+// "<site label> 2026-11-01 15-58.zip", a name Windows accepts: no <>:"/\|?*
+// or control characters, no dot or space where the label ends.
+function zipName(sc, time) {
+  const label = sc.label.replace(/[<>:"/\\|?*\p{Cc}]/gu, "_").trim().replace(/[. ]+$/, "");
+  return `${label || sc.id} ${time.slice(0, 10)} ${time.slice(11).replace(":", "-")}.zip`;
+}
+
+export async function createApp(cfg, { log, ftp, video, zip } = {}) {
   await mkdir(cfg.dataDir, { recursive: true, mode: 0o700 });
   const staticFiles = await loadStatic(PUBLIC_DIR);
   const users = createUserStore(path.join(cfg.dataDir, "users.json"));
@@ -60,6 +108,9 @@ export async function createApp(cfg, { log, ftp, video } = {}) {
   const converter = createConverter({ ffmpegPath: cfg.ffmpegPath, ...video });
   const audit = createAudit(path.join(cfg.dataDir, "audit.jsonl"));
   const limiter = createLimiter({ max: 10, windowMs: 15 * 60 * 1000 });
+  const zipOptions = { ...ZIP_DEFAULTS, ...zip };
+  const zipLinks = new Map();   // token -> { user, id, lang, paths, time, name, expires }, oldest first
+  let zipStreams = 0;           // archives being sent right now
 
   function page(name) {
     const file = staticFiles.get(`/${name}.html`);
@@ -197,6 +248,66 @@ export async function createApp(cfg, { log, ftp, video } = {}) {
     sendVideo(ctx.req, ctx.res, body, segments.at(-1));
   }
 
+  // Step 1 of a ZIP export: check the list, and answer with a link the page
+  // simply follows, so that the browser's download manager shows the
+  // progress and the page never holds the archive. The link works once,
+  // for this user, for a short while; it remembers the user's language for
+  // the archive's errors entry.
+  async function prepareZip(ctx) {
+    const sc = await requireShortcut(ctx.params.id);
+    const body = await readJson(ctx.req);
+    const paths = zipPaths(body.paths, zipOptions.maxFiles);
+    const time = localTime(body.localTime);
+    const now = Date.now();
+    const theirs = [];
+    for (const [token, link] of zipLinks) {
+      if (link.expires <= now) zipLinks.delete(token);
+      else if (link.user === ctx.user.name) theirs.push(token);
+    }
+    if (theirs.length >= zipOptions.linksPerUser) zipLinks.delete(theirs[0]);
+    const token = randomBytes(18).toString("base64url");
+    const name = zipName(sc, time);
+    zipLinks.set(token, {
+      user: ctx.user.name, id: sc.id, lang: requestLanguage(ctx.req), paths, time, name, expires: now + zipOptions.ttlMs,
+    });
+    return { url: `/api/zip/${token}`, count: paths.length, name };
+  }
+
+  // Step 2: the archive, built while it streams (gateway.zip). An unknown,
+  // used, expired or someone else's link is the same 404. HEAD answers from
+  // the link alone: it neither uses it up nor touches FTP.
+  async function sendZip(ctx) {
+    const { token } = ctx.params;
+    const link = zipLinks.get(token);
+    if (!link || link.expires <= Date.now() || link.user !== ctx.user.name) {
+      throw new HttpError(404, msg("err.zipExpired"));
+    }
+    // Before the link is used up, so that the page can retry it.
+    if (zipStreams >= zipOptions.maxConcurrent) {
+      throw new HttpError(503, msg("err.zipBusy"), { "Retry-After": "5" });
+    }
+    // No Content-Length: the size is known only at the end, so it is chunked.
+    const headers = {
+      "Content-Type": "application/zip",
+      "Content-Disposition": contentDisposition("attachment", link.name),
+      "Cache-Control": "private, no-store",
+    };
+    if (ctx.req.method === "HEAD") {
+      ctx.res.writeHead(200, headers);
+      ctx.res.end();
+      return;
+    }
+    zipLinks.delete(token);
+    zipStreams++;
+    try {
+      const sc = await requireShortcut(link.id);
+      audit("export", { user: ctx.user.name, ip: ctx.ip, id: sc.id, count: link.paths.length, paths: link.paths });
+      await gateway.zip(sc, link.paths, ctx.res, { lang: link.lang, time: link.time, headers });
+    } finally {
+      zipStreams--;
+    }
+  }
+
   /* ---- route table ---- */
 
   const routes = [
@@ -219,6 +330,8 @@ export async function createApp(cfg, { log, ftp, video } = {}) {
     { method: "GET", path: LIST_PATH, auth: "user", handler: listFolder },
     { method: "GET", path: FILE_PATH, auth: "user", handler: streamFile },
     { method: "GET", path: PLAY_PATH, auth: "user", handler: playVideo },
+    { method: "POST", path: ZIP_PATH, auth: "user", handler: prepareZip },
+    { method: "GET", path: ZIP_LINK, auth: "user", handler: sendZip },
   ];
 
   const handler = createHandler({

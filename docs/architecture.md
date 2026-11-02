@@ -41,6 +41,7 @@ own [architecture notes](../legacy/docs/architecture.md).
 | `server/store.js` | FTP shortcuts (`shortcuts/*.json`), validation, safe renames. |
 | `server/ftp.js` | The FTP gateway: listings and file streaming over `basic-ftp`. |
 | `server/video.js` | Makes videos playable: passes browser-ready MP4s through, converts the rest with ffmpeg. |
+| `server/zip.js` | Writes a ZIP as it streams: stored entries, CRC-32 on the fly, a data descriptor per entry, no Zip64. |
 | `public/js/filetypes.js` | What each file type is and whether it may render inline. Shared by server and browser. |
 | `server/audit.js` | Append-only audit trail (`audit.jsonl`). |
 | `server/files.js` | Atomic writes (temp file + rename), JSON reads, JSON-stream splitting. |
@@ -210,6 +211,8 @@ told where the FTP server lives.
 | `GET /api/shortcuts/:id/list?path=/a/b` | user | `{ path, entries: [{ name, isDir, isLink, size, date, modified }] }` (see [Listings](#listings)) |
 | `GET` or `HEAD /api/shortcuts/:id/file?path=/a/b/c.mp4[&download=1]` | user | The file, streamed, with `Range` support |
 | `GET` or `HEAD /api/shortcuts/:id/play?path=/a/b/c.avi` | user | The video as an MP4 the browser can play, with `Range` support ([Playing videos](#playing-videos)) |
+| `POST /api/shortcuts/:id/zip` with `{ paths, localTime }` | user | `{ url, count, name }`: a single-use link to those files as one ZIP ([ZIP export](#zip-export)) |
+| `GET` or `HEAD /api/zip/:token` | user | That ZIP, streamed while it is built |
 
 The entry shape is the one the HTA's parser produced, so the ported UI
 consumes it unchanged. See [The FTP gateway](#the-ftp-gateway) below.
@@ -374,6 +377,48 @@ are refused.
 
 413, 415 and 501 are remembered for a minute, so retries cost nothing. At
 startup the server prints whether conversion is on.
+
+### ZIP export
+
+Up to 200 files of one site can be downloaded as one archive, in two steps:
+
+1. `POST /api/shortcuts/:id/zip` with `{ paths, localTime }` checks the list
+   (1 to 200 file paths, each valid, none twice once normalized; 400
+   otherwise) and answers `{ url, count, name }`. The URL,
+   `/api/zip/<token>`, works once, for the same user, within 2 minutes;
+   anything else is a 404. Links live in memory only, at most 10 waiting
+   per user.
+2. The page follows the URL like any download, so the browser's download
+   manager shows the progress and the page never holds the archive. The
+   answer is an `application/zip` attachment named
+   `<site label> YYYY-MM-DD HH-MM.zip` after the browser's clock
+   (`localTime`), with the characters Windows forbids replaced by `_`, and
+   no `Content-Length`. At most 2 archives stream at once on the server: a
+   third gets a 503 with `Retry-After: 5`, and its link stays valid. `HEAD`
+   uses neither the link nor FTP.
+
+`server/zip.js` writes the archive while the files arrive: stored rather
+than compressed (camera clips don't shrink), with the CRC-32 computed on
+the way, a data descriptor after each file and UTF-8 names. A second file
+with the same name becomes `clip (2).avi`. Each entry's time is the
+recorder's clock read from the clip's name (`parseClip`), or else the
+export time. There is no Zip64, so an archive stops at 65,535 entries or
+2 GiB.
+
+`gateway.zip` holds one FTP connection for the whole archive: one login,
+one `PWD`, then for each file back to the login directory, one `CWD` per
+segment and `RETR`, with the backpressure and stall timer of single files.
+Whatever happens, the archive stays valid and says what it lacks:
+
+- a file that fails before its first byte is left out; one cut off midway
+  keeps what arrived;
+- a lost connection is opened again once; after a second loss, the
+  remaining files are not tried, and neither are those past the limits;
+- all of these are listed with the reason in a last `ERRORS.txt` entry
+  (`ERREURS.txt` in French), in the language of the user who asked.
+
+The FTP connection closes as soon as the browser goes away. Each export
+adds one `export` line to the audit trail, with the shortcut and every path.
 
 ### Protecting the server's IP
 
@@ -545,7 +590,9 @@ events, each with time, user and client IP:
 - `list` (shortcut `id` and `path`), `file` (`id`, `path`, and
   `download: true` for forced downloads) and `play` (`id`, `path`: a video
   opened through `/play`). A file is logged once per opening: ranged
-  requests that do not start at byte 0 (video seeks) are not logged again.
+  requests that do not start at byte 0 (video seeks) are not logged again;
+- `export` (`id`, `count` and every `path`): a ZIP of several files,
+  when it starts streaming.
 
 Passwords are never logged. CCTV footage is personal data, so who accessed
 what must be accountable. Writes are queued so lines never interleave, and
@@ -613,6 +660,14 @@ dependencies:
   goes out untouched, other clips are converted, ranges, `HEAD`, the size
   limit with and without `SIZE`, errors, the audit trail, and a server
   without ffmpeg.
+- `tests/zip.test.js`: the ZIP writer, read back by a central-directory
+  reader of its own: exact bytes, CRCs, UTF-8 names, DOS times from clip
+  names, empty, failed and cut-off entries, duplicate names, the limits.
+- `tests/zip-api.test.js`: the ZIP export over HTTP against the fake FTP
+  server: one login per archive, the link's rules (single use, its user, 2
+  minutes), the 400 / 404 / 503 answers, `HEAD`, an abandoned download,
+  a missing or cut-off file listed in `ERRORS.txt` / `ERREURS.txt`, a
+  lost connection reopened once, the audit line.
 - `tests/http.test.js`: the real server on an ephemeral port with a
   throwaway data directory (`tests/helpers/app.js`): pages, static files,
   headers, sign-in, sign-out, throttling, proxy handling, the audit trail.

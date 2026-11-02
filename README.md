@@ -55,7 +55,7 @@ signs in and browses, from any device, with nothing to install.
 
 ## Try it locally
 
-Requirements: Node.js 22 or newer. Optional: [ffmpeg](https://ffmpeg.org/)
+Requirements: Node.js 22.2 or newer. Optional: [ffmpeg](https://ffmpeg.org/)
 on the `PATH` (or `FFMPEG_PATH`), to play videos browsers can't decode.
 
 ```

@@ -5,10 +5,12 @@
  *     list(sc, path, res)               -> [{ name, isDir, isLink, size, date, modified }]
  *     stream(sc, path, req, res, opts)  pipe one file into the HTTP response
  *     fetch(sc, path, { maxBytes })     -> Buffer: one whole file (video conversion)
+ *     zip(sc, paths, res, opts)         several files as one ZIP, over one connection
  *     forget(id)                        lift the login-failure pause of a shortcut
  *   parseRemotePath(path)               "/a/b" -> ["a", "b"]; HttpError 400 if unsafe
  *   parseRange(header, size)            null | "unsatisfiable" | { start, end }
  *   fileHeaders(name, type, size, range, length)   headers of a served file
+ *   contentDisposition(disposition, name)          the same header, exact UTF-8 name included
  *   toHttpError(err)                    FTP/network error -> readable HttpError
  *   modifiedTime(info, now)             a listing's date as ISO 8601 text, or null
  *
@@ -28,8 +30,9 @@ import { Client, FTPError, enterPassiveModeIPv6 } from "basic-ftp";
 // dependency is pinned to patch releases, and tests/ftp.test.js covers it.
 import { parsePasvResponse, connectForPassiveTransfer } from "basic-ftp/dist/transfer.js";
 import { HttpError } from "./http.js";
+import { createZip } from "./zip.js";
 import { inlineType } from "../public/js/filetypes.js";
-import { msg } from "../public/js/i18n.js";
+import { msg, translate, formatSize } from "../public/js/i18n.js";
 
 const DEFAULTS = {
   timeoutMs: 15_000,          // the FTP server may stay silent this long
@@ -259,7 +262,7 @@ function toEntry(info) {
 }
 
 // ASCII fallback for old clients, exact UTF-8 name for everyone else (RFC 6266).
-function contentDisposition(disposition, name) {
+export function contentDisposition(disposition, name) {
   const ascii = name.replace(/[^\x20-\x7e]|["\\%]/g, "_");
   const utf8 = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
   return `${disposition}; filename="${ascii}"; filename*=UTF-8''${utf8}`;
@@ -289,6 +292,21 @@ async function fileSize(client, name) {
     if (!(err instanceof FTPError) && /Can't parse/.test(err.message)) return null;
     throw err;   // 550: no such file; anything else: the connection is in trouble
   }
+}
+
+/* ---- ZIP export ---- */
+
+// Kept free at the end of an archive for each file's line in the errors
+// entry: a path (at most 1024 characters) and a reason cut to 500.
+const ERRORS_ROOM = 8 * 1024;
+
+// No string of its own says "the archive is full (2 GiB or 65,535 files)".
+const ARCHIVE_FULL = new HttpError(413, msg("zip.full"));
+
+// Why a file is missing, as one line of the errors entry (multi-line FTP
+// replies included). Only line breaks go: no-break spaces are typography.
+function reasonText(err, lang) {
+  return toHttpError(err).localized(lang).replace(/[\r\n\t]+/g, " ").trim().slice(0, 500);
 }
 
 /* ---- gateway ---- */
@@ -428,6 +446,56 @@ export function createGateway(options = {}) {
     res.end();
   }
 
+  // Feeds one RETR into a ZIP entry with the same backpressure: the next
+  // chunk is taken once the browser has taken this one. When nothing moves
+  // for stallMs, a browser that stopped reading ends the whole archive
+  // (onStall); a server that stopped sending ends only this transfer.
+  async function pipeEntry(conn, name, entry, res, onStall) {
+    let stallTimer = null;
+    let waiting = false;   // for the browser to drain
+    let silent = false;    // the server stopped sending
+    const progress = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        if (waiting) return onStall();
+        silent = true;
+        conn.close();
+      }, o.stallMs);
+    };
+
+    const sink = new Writable({
+      write(chunk, _encoding, callback) {
+        if (res.destroyed) return callback(new Error("Response closed"));
+        let flushed;
+        try {
+          flushed = entry.write(chunk);
+        } catch (err) {
+          return callback(err);   // the archive is full: this ends the transfer
+        }
+        progress();
+        if (flushed) return callback();
+        waiting = true;
+        res.once("drain", () => {
+          waiting = false;
+          progress();
+          callback();
+        });
+      },
+      final(callback) {
+        callback();   // the entry ends only once the transfer is known to be complete
+      },
+    });
+
+    progress();
+    try {
+      await conn.client.downloadTo(sink, name);
+    } catch (err) {
+      throw silent ? new HttpError(504, msg("err.ftpSilent")) : err;
+    } finally {
+      clearTimeout(stallTimer);
+    }
+  }
+
   return {
     forget(id) {
       loginPaused.delete(id);
@@ -507,6 +575,106 @@ export function createGateway(options = {}) {
         }
         return Buffer.concat(chunks, total);
       });
+    },
+
+    // Several files of one shortcut as one ZIP (server/zip.js), over a single
+    // connection: PWD once, then for each file back to that login directory,
+    // one CWD per segment and RETR. Headers go out with the archive's first
+    // byte, so a failed login is still a plain error reply. A file that fails
+    // is left out, or kept as far as it came, and named in a last ERRORS.txt
+    // in `lang`: the archive is always valid and says what it lacks. A lost
+    // connection is opened again once; after that, the rest is listed.
+    async zip(sc, rawPaths, res, { lang = "en", time, headers = {} } = {}) {
+      const files = rawPaths.map((rawPath) => {
+        const dirs = parseRemotePath(rawPath);
+        const name = dirs.pop();
+        if (!name) throw new HttpError(400, msg("err.notAFile"));
+        return { path: "/" + [...dirs, name].join("/"), dirs, name };
+      });
+      let conn = await connect(sc);
+      let gone = false;   // the browser left, or stopped reading: nobody to write for
+      const abandon = () => {
+        gone = true;
+        conn.close();
+        res.destroy();
+      };
+      const onClose = () => {
+        if (!res.writableFinished && !gone) abandon();
+      };
+      res.on("close", onClose);
+      if (res.destroyed) onClose();
+
+      const archive = createZip((chunk) => {
+        if (!res.headersSent) res.writeHead(200, headers);
+        return res.write(chunk);
+      }, { time, reserve: ERRORS_ROOM * (files.length + 1) });
+      const problems = [];   // the lines of the errors entry
+      const failed = (file, err) => problems.push(
+        translate(lang, "zip.errorLine", { name: file.path, reason: reasonText(err, lang) }));
+      const incomplete = (file, size) => problems.push(
+        translate(lang, "zip.incomplete", { name: file.path, size: formatSize(size, lang) }));
+      let home = null;       // the login directory
+      let reopened = false;
+
+      try {
+        for (let i = 0; i < files.length; i++) {
+          if (gone || res.destroyed) return;
+          const file = files[i];
+          let entry = null;
+          try {
+            home ??= await conn.client.pwd();
+            await conn.client.cd(home);
+            for (const dir of file.dirs) await conn.client.cd(dir);
+            entry = archive.file(file.name);
+            await pipeEntry(conn, file.name, entry, res, abandon);
+            entry.end();
+          } catch (err) {
+            if (gone || res.destroyed) return;
+            const sent = entry ? entry.size : 0;
+            entry?.abort();
+            const rest = files.slice(i + 1);
+            if (archive.full) {          // no room left: the rest isn't even tried
+              if (sent) incomplete(file, sent);
+              else failed(file, ARCHIVE_FULL);
+              rest.forEach((f) => failed(f, ARCHIVE_FULL));
+              break;
+            }
+            if (!conn.client.closed) {   // the server refused this one file
+              if (sent) incomplete(file, sent);
+              else failed(file, err);
+              continue;
+            }
+            // The connection is lost: open another, once.
+            if (sent) incomplete(file, sent);
+            let cause = err;
+            if (!reopened) {
+              reopened = true;
+              conn.close();
+              try {
+                conn = await connect(sc);
+                if (!sent) i--;          // not started yet: try it again
+                continue;
+              } catch (connectError) {
+                cause = connectError;
+              }
+            }
+            if (!sent) failed(file, cause);
+            rest.forEach((f) => failed(f, cause));
+            break;
+          }
+        }
+        if (gone || res.destroyed) return;
+        if (problems.length) {
+          // A BOM and CRLFs, so that every Windows text editor reads it right.
+          const text = [translate(lang, "zip.errorsIntro"), ...problems, ""].join("\r\n");
+          archive.add(translate(lang, "zip.errorsName"), Buffer.from("\ufeff" + text, "utf8"));
+        }
+        archive.end();
+        res.end();
+      } finally {
+        res.off("close", onClose);
+        conn.close();
+      }
     },
   };
 }

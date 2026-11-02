@@ -233,7 +233,7 @@ docker compose exec -T app sh -c ': > /data/audit.jsonl'
 
 ## 10. Without Docker
 
-1. Install **Node.js 22 or newer**, **Caddy** and **ffmpeg** from your
+1. Install **Node.js 22.2 or newer**, **Caddy** and **ffmpeg** from your
    distribution's or the vendors' packages (`sudo apt install ffmpeg` on
    Debian and Ubuntu). Without ffmpeg the app still works, but videos
    browsers can't play are download-only; the service log says so at
