@@ -43,6 +43,7 @@ own [architecture notes](../legacy/docs/architecture.md).
 | `server/video.js` | Makes videos playable: passes browser-ready MP4s through, converts the rest with ffmpeg. |
 | `server/zip.js` | Writes a ZIP as it streams: stored entries, CRC-32 on the fly, a data descriptor per entry, no Zip64. |
 | `public/js/filetypes.js` | What each file type is and whether it may render inline. Shared by server and browser. |
+| `public/js/clips.js` | The camera and the recording time in a clip's name. Shared by server (ZIP entry times) and browser. |
 | `server/audit.js` | Append-only audit trail (`audit.jsonl`). |
 | `server/files.js` | Atomic writes (temp file + rename), JSON reads, JSON-stream splitting. |
 | `server/cli.js` | Account administration and shortcut import from the server's shell. |
@@ -110,7 +111,7 @@ lower case.
 { "users": { "alice": { "role": "admin", "hash": "scrypt$32768$8$1$<salt>$<key>" } } }
 ```
 
-- **Roles:** `admin` will manage shortcuts; `user` browses only.
+- **Roles:** `admin` manages shortcuts; `user` browses only.
 - **Hashing:** scrypt, N = 32768, r = 8, p = 1, 16-byte salt, 32-byte key,
   compared with `timingSafeEqual`. Sign-in attempts for unknown usernames
   still run scrypt against a dummy hash, so timing does not reveal which
@@ -153,7 +154,10 @@ guessing many accounts; the other stops many clients guessing one.
 
 ## Shortcuts
 
-A shortcut is one FTP account to browse. Shortcuts are shared by everyone
+A shortcut is one FTP account to browse, in practice one client's site:
+the interface calls them *sites* wherever users look (the pane, the admin
+menu, the form, the server's errors), while the code, the API, the file
+names and the i18n keys keep "shortcut". Shortcuts are shared by everyone
 signed in, and only admins can change them. Each lives in
 `data/shortcuts/<id>.json` (mode 0600), in **exactly the legacy HTA's
 format**:
@@ -199,7 +203,7 @@ are read fine; unreadable files are skipped with a warning.
 | `DELETE /api/shortcuts/:id` | admin | 204 |
 
 `GET /api/me` returns `{ username, role }`, plus, for admins only, the
-`defaults: { host, port }` that prefill the "New shortcut" form
+`defaults: { host, port }` that prefill the "New site" form
 (`DEFAULT_FTP_HOST`, `DEFAULT_FTP_PORT`). FTP passwords appear in no
 response at all. Browsing only needs a label, so regular users are not even
 told where the FTP server lives.
@@ -208,14 +212,15 @@ told where the FTP server lives.
 
 | Method + path | Role | Response |
 |---|---|---|
-| `GET /api/shortcuts/:id/list?path=/a/b` | user | `{ path, entries: [{ name, isDir, isLink, size, date, modified }] }` (see [Listings](#listings)) |
+| `GET /api/shortcuts/:id/list?path=/a/b[&auto=1]` | user | `{ path, entries: [{ name, isDir, isLink, size, date, modified }] }` (see [Listings](#listings)). `auto=1` marks the page's own check for new files, which is audited at most once per 10 minutes ([Listings kept current](#listings-kept-current)) |
 | `GET` or `HEAD /api/shortcuts/:id/file?path=/a/b/c.mp4[&download=1]` | user | The file, streamed, with `Range` support |
 | `GET` or `HEAD /api/shortcuts/:id/play?path=/a/b/c.avi` | user | The video as an MP4 the browser can play, with `Range` support ([Playing videos](#playing-videos)) |
 | `POST /api/shortcuts/:id/zip` with `{ paths, localTime }` | user | `{ url, count, name }`: a single-use link to those files as one ZIP ([ZIP export](#zip-export)) |
 | `GET` or `HEAD /api/zip/:token` | user | That ZIP, streamed while it is built |
 
-The entry shape is the one the HTA's parser produced, so the ported UI
-consumes it unchanged. See [The FTP gateway](#the-ftp-gateway) below.
+The entry shape is the one the HTA's parser produced, plus `modified`: `date`
+is the listing's raw text, and `modified` the same moment as ISO 8601 text,
+or `null`. See [The FTP gateway](#the-ftp-gateway) below.
 
 ### Importing shortcuts from the HTA
 
@@ -456,97 +461,349 @@ not shown:
 ## Browser UI
 
 `public/` is served as-is: plain ES modules, no framework, no build step.
-It is a port of the HTA's `ui/`: same two-panel layout, same module
-boundaries, same behaviour, minus the IE11 workarounds (ES5, `className`
-regexes, `onmousewheel`, simulated clicks).
+It began as a port of the HTA's `ui/`, minus the IE11 workarounds (ES5,
+`className` regexes, `onmousewheel`, simulated clicks), and now works like
+File Explorer's Details view: a navigation pane, a command bar, one list
+that sorts, filters and selects, and a status bar. Pure modules hold the
+logic that decides what an operator sees, so `node:test` covers it without
+a browser; DOM modules draw it.
 
 | File | Role | HTA counterpart |
 |---|---|---|
-| `index.html` | The explorer page | `quick-ftp-explorer.hta` |
+| `index.html` | The explorer page: top bar, sites pane, command bar, list, status bar, and the native dialogs (site form, help, link fallback, phone filter sheet) | `quick-ftp-explorer.hta` |
 | `login.html`, `js/login.js` | The sign-in form, and why the last attempt bounced | (none) |
 | `js/api.js` | Every server call; a 401 sends the page back to sign-in | `shell.js` + `config.js` + `ftp.js` |
-| `js/ui.js` | `tree` (left pane) and `files` (right-pane table) | `ui.js` |
-| `js/viewer.js` | Modal viewer: images (zoom / pan), video and audio | `viewer.js` (images only) |
-| `js/app.js` | Wiring: selection, breadcrumb, search, opening files, splitter, shortcut management | `app.js` |
-| `js/util.js` | Pure helpers (paths, sizes, natural sort, labels, search matching), unit-tested | (inline in `ui.js` / `app.js`) |
+| `js/app.js` | Wiring: the three views and their pipeline, history and the URL, search, opening files, the commands, the menus' contents, the new-file check, the phone drawer and selection mode, site management | `app.js` |
+| `js/ui.js` | The navigation pane, an ARIA tree of Tous les sites and the sites' folders, with Trouver un site; and the listing cache both panes share | `ui.js` (the tree) |
+| `js/grid.js` | The right pane's list, one ARIA grid (`role=grid`): sort headers, day headings, check boxes, the selection's display, the pointer and keyboard model | `ui.js` (the files table) |
+| `js/listview.js` | Row models, columns, sorts, periods and filters with their counts, day groups, listing diffs, the viewer's list. Pure, unit-tested | (none) |
+| `js/selection.js` | File Explorer's selection rules, as pure state changes. Unit-tested | (none) |
+| `js/clips.js` | The camera and the recording time in a clip's name. Pure, unit-tested, shared with the server | (none) |
+| `js/toolbar.js` | The command bar: Ouvrir, Télécharger, Copier le lien, Trier and the filters; on phones, the filter sheet and its chips | (none) |
+| `js/menu.js` | The right-click menus, for the mouse and the keyboard | the admin-only menu in `app.js` |
+| `js/keys.js` | Page-wide shortcuts, the Esc layers, the screen-reader announcer, and the `SHORTCUTS` table that the help and the manuals list | (none) |
+| `js/prefs.js` | The four choices this browser remembers, in `localStorage`. Unit-tested | (none) |
+| `js/viewer.js` | The viewer, a modal `<dialog>` that steps through a list: images (zoom / pan), video and audio, chained playback | `viewer.js` (images only) |
+| `js/util.js` | Pure helpers (paths, times, sizes, natural sort, type-ahead, labels, search matching, folder and clip links), unit-tested | (inline in `ui.js` / `app.js`) |
 | `js/search.js` | The folder walk behind the search box, unit-tested | (none: the HTA filtered one folder) |
-| `js/i18n.js` | Every text in English and French, shared with the server; the language; French sizes and dates | (none: English only) |
+| `js/i18n.js` | Every text in English and French, shared with the server; the language; sizes, dates and times | (none: English only) |
 | `js/filetypes.js` | File kinds and inline types, shared with the server | `kindFor` in `ui.js` |
-| `js/icons.js` | The tree's and table's line icons, built as DOM nodes | emoji in `ui.js` |
+| `js/icons.js` | The line icons, built once as DOM nodes and cloned | emoji in `ui.js` |
 | `styles.css` | The File-Explorer layout in the Dessaud Alarme Service colours, as OKLCH custom properties | `styles.css` |
 | `logo.svg` | The logo and favicon: a folder holding a camera lens, on the brand red | (none) |
 
-**Search, as in File Explorer.** The top bar's box finds files and folders
-by name in the open folder and all its subfolders, or in every site when
-none is open (matching sites are listed first). `search.js` walks the
-folders through `tree.listing`, so it shares the listing cache: a second
-search of a place is instant, and opening a folder found by a search
-needs no new listing. The walk reads at most 6 folders at a time and 300
-in all, 10 levels deep, and never follows links, so one search can't flood
-the FTP server. Typing only re-filters what has been read: words are
-folded (lower case, no accents) and must all appear, in any order
-(`matchFolded` in `util.js`), and the matched parts are highlighted with
-`<mark>` text nodes. Going to any folder ends the search, as in File
-Explorer; `Esc` clears it. At most 500 results are drawn.
+### The list
+
+**One pipeline for every view.** `renderView()` in `app.js` draws the
+right pane's three views (Tous les sites, a folder, search results) the
+same way, describe → filter → sort → cap → group:
+
+1. **describe**: `describeEntry(entry, { sc, parent })` turns a listing
+   entry into a row model, `{ key, kind, camera, time, precision,
+   timeSource, modifiedMs, size, … }`, keyed `<shortcut id>::<path>`.
+   Models are memoised per entry object in a `WeakMap`, so redrawing a
+   folder of 3,000 files parses no name twice. `columnsFor` adds the Caméra
+   column when a file of the unfiltered view has a camera.
+2. **filter**: `applyFilters(rows, filters, now)` returns `{ shown, hidden }`.
+   Folders always pass, and a period hides files without a time. `facets()`
+   counts each camera and kind within the other filters, for the selects.
+3. **sort**: `sortRows(rows, sort)`. Folders stay on top. Equal dates fall
+   back to the FTP time, then to the name; rows without a value go last in
+   both directions. A saved Caméra order falls back to newest first,
+   unsaved, on a view without cameras.
+4. **cap**: search results only, 500 rows, after the filter and the sort,
+   so the rows shown are the first in the chosen order (the newest, by
+   default). Matching sites come before them.
+5. **group**: sorted by date, `groupByDay(rows, now)` splits the files by
+   local day, with folders first and no heading, and undated files last. A
+   clip a little in the future (a fast camera clock) counts as today.
+
+`grid.render(container, model, callbacks)` then builds the rows in a
+`DocumentFragment`, one row group per day under a sticky heading, wires one
+set of delegated listeners, and restores the scroll and the focus by key. Tous les sites skips the filters and the command bar: one
+Name column, sorted by name, a choice that is not saved.
+
+**Dates.** A row's `time` is the recording time read from the clip's name,
+else the listing's `modified`, the way Windows' Date column prefers the date
+a photo was taken. `util.parseTime` reads `…Z` as an exact moment, and
+anything without a zone, a bare day included, as this browser's local time,
+field by field: never with `Date.parse`, which reads a bare day as UTC.
+`formatDateTime` prints `01/11/2026 15:58` in both languages (the app's
+English is en-GB); FTP times show minutes, and seconds show only when the
+name carries them. The cell's tooltip names the source and adds the FTP
+time. A `modified` of `null` shows the raw `date`, muted, and sorts last.
+
+**Clip names.** `parseClip(name)` in `clips.js` reads
+`<site or device>_<camera>_<stamp>.<ext>` and `<camera>_<stamp>.<ext>`:
+
+| Stamp | Example | `time` |
+|---|---|---|
+| 12 digits, `YYYYMMDDhhmm`, the recorder's clock | `1234_Cam 1_202611011558.avi` | `2026-11-01T15:58` |
+| 14 digits, `YYYYMMDDhhmmss`, the recorder's clock | `1234_Cam 1_20261101155812.avi` | `2026-11-01T15:58:12` |
+| 10 digits, Unix seconds, an exact moment | `12345678_02_1793345412.mp4` | `2026-10-30T07:30:12Z` |
+
+The camera is everything between the first and the last `_`, joined back
+with `_` and kept as written (`Cam 1`, `02`); with two parts, it is the
+first (`Garage_202611011558.avi`). A name without a stamp, a stamp outside
+2000–2099 or an impossible date gives `null`. Results are cached per name.
+The server reuses `parseClip` for the times of ZIP entries.
+
+### Selection, keys and menus
+
+**Selection.** It lives in `app.js` as a `selection.js` state,
+`{ selected, anchor, focus }` of row keys, so sorting, filtering,
+refreshing and redrawing keep it. `retain` drops the rows a filter hides,
+and opening another place clears it. `grid.update(selection)` only toggles
+a class and `aria-selected`: no row is rebuilt for a selection change.
+
+- **Mouse and pen**: a click selects one row (`click`), Ctrl toggles,
+  Shift selects the range from the anchor and Ctrl+Shift adds it; a row's
+  check box toggles; a click below the rows clears. A double-click opens.
+- **Touch**: the pointer type is recorded on `pointerdown`, and a tap
+  opens. A tap with `detail > 1`, or within 400 ms of `grid.hold()` (called
+  on every navigation and when the viewer opens), is ignored, so the second
+  tap of a double tap never lands on what just appeared. In the phone's
+  selection mode, taps toggle instead.
+- **Keyboard**: the list and the tree are one Tab stop each, with a roving
+  `tabindex` (`focusin` moves it, so Tab comes back to the last row). In the
+  list, the arrows, Home/End and Page Up/Down move and select (`move`: Shift
+  extends, Ctrl moves the focus only), Space toggles, Ctrl+A selects the
+  files shown, Enter opens, and Esc clears the selection, then the search.
+  On Tous les sites, letters type ahead. The focused row scrolls into view
+  below the sticky header (`scroll-padding-top`); day headings take no
+  focus, and ranges skip them.
+- A single selected row shows *Double-cliquez (ou appuyez sur Entrée) pour
+  ouvrir.* in the status bar, until something has been opened from the
+  list once (`prefs.hintDone`).
+
+**Keys.** `keys.js` handles the page-wide ones: Ctrl+F and F3 focus the
+search box (not when it already has the focus, so a second press reaches the
+browser's own find), Shift+F10 and the Menu key open the menu of the focused
+row or tree item, Alt+Up goes up, Backspace goes back, and `?` opens the
+help. None acts while a dialog is open, and Backspace, Alt+Up and `?` do
+nothing in text fields. F5, Ctrl+L, Alt+Left/Right and the browser's other
+keys are left alone. `SHORTCUTS` lists the keys once, for the help dialog
+and the manuals.
+
+**Esc layers.** Esc closes one layer at a time. Native dialogs (the viewer,
+the site form, the help, the link fallback, the phone's filter sheet) close
+themselves through their `cancel` event. The list and the search box use Esc
+first, for the selection and the search. Whatever is left goes to a stack
+(`layers.push(name, close)`): the menu, the phone's search field, the drawer
+and the phone's selection mode, topmost first.
+
+**Menus.** `menu.js` renders a `role=menu` of `menuitem` buttons. It focuses
+the first item; the arrows, Home and End move; Enter or Space runs an item;
+Esc, Tab, a click elsewhere, a resize or the window losing the focus close
+it and give the focus back. One delegated `contextmenu` listener on `#app`
+serves rows, tree items, the list's background and, for admins, the tree's
+background; a right-click on an unselected row selects it first. Text
+fields, links (the breadcrumb's) and dialogs keep the browser's own menu. A
+middle click on a folder or site row opens it in a new tab. iOS sends no
+`contextmenu` on a long press, so admins also get a ⋯ button on the open
+site's tree row.
+
+**The announcer.** One visually hidden `#announcer` (`role=status`) speaks,
+debounced by 500 ms: folder loads ("1234 Résidence : 81 éléments"), sort
+and filter changes, the start and the end of a search, new files, and the
+next clip of a chained playback. The status bar is not a live region, and
+moving through rows says nothing extra: `aria-selected` already does.
+
+### Search
+
+The top bar's box finds files and folders by name in the open folder and
+all its subfolders, or in every site when none is open (matching sites are
+listed first). `search.js` walks the folders through `tree.listing`, so it
+shares the listing cache: a second search of a place is instant, and opening
+a folder found by a search needs no new listing. The walk reads at most 6
+folders at a time and 300 in all, 10 levels deep, and never follows links,
+so one search can't flood the FTP server. Typing only re-filters what has
+been read: words are folded (lower case, no accents) and must all appear, in
+any order (`matchFolded` in `util.js`), and the matched parts are
+highlighted with `<mark>` text nodes. The results then go through
+[the list's pipeline](#the-list), filters and sort included, before the
+500-row cap, and redraw at most every 300 ms while the walk runs. Going to
+any folder ends the search, as in File Explorer; `Esc` or × clears it, and
+starting or clearing it in the same place keeps the filters.
+
+### Listings kept current
 
 **One listing per folder, shared by both panes.** `tree.listing(sc, path)`
-returns a cached promise; the tree and the right pane both use it. In the
-HTA the right pane depended on the tree having rendered the folder's node,
-which caused two bugs that are gone now:
+returns a cached promise and records when the listing arrived (`loadedAt`,
+the status bar's *Mis à jour à*); the tree and the right pane both use it.
+In the HTA the right pane depended on the tree having rendered the folder's
+node, which caused two bugs that are gone now:
 
 - after a failed listing, the right pane stayed on "Loading…";
 - clicking a folder while the search hid its tree node did the same.
 
-Failed listings are retried on the next request. **↻** (`tree.refresh`)
-drops one folder's listing and loads it again. Responses that arrive after
-the user moved on are ignored.
+Failed listings are retried on the next request. Responses that arrive
+after the user moved on are ignored.
 
-**Navigation.** `tree.reveal(sc, path)` marks the shortcut, every folder on
-the way and the target as open, selects the target, and re-renders. Nodes
-fill in as their parents' listings arrive. Breadcrumb segments and folder
-rows in the table both navigate this way, so any folder can be reached
-whether or not its ancestors were open. In the HTA, the target had to be
-rendered already.
+**Refreshing.** **↻** reloads the open folder with
+`tree.refresh(sc, path, { quiet: true })`. The rows stay on screen
+(`aria-busy`), the selection, focus and scroll are kept by key, and files
+that appeared are tagged *Nouveau*. A failure leaves the rows and shows a
+notice with Réessayer. A quiet refresh redraws the tree only when the
+subfolders changed, so it never takes the focus away from it. Coming back to
+a folder whose listing is more than 60 s old shows the cached rows at once
+and reloads them in the background.
 
-**The URL names the open folder.** `#/<shortcut id>/<folder>/<folder>`,
-each part URL-encoded (`formatHash` / `parseHash` in `util.js`):
+**New files while you look.** Every 60 s (a chained `setTimeout`, so checks
+never overlap), the page lists the open folder again with `list?auto=1`,
+but only while a folder is open, the tab is visible, the user has pressed a
+key or the pointer in the last 30 minutes, and no search, viewer, menu or
+dialog is open. When the tab becomes visible after more than 60 s, the check
+runs at once. `diffListing` compares the names. New files are never slipped
+in under the reader's eyes: a notice says "2 nouveaux fichiers · Afficher",
+and Afficher stores the new listing (`tree.store`) and redraws it with the
+new files tagged *Nouveau* for 10 minutes, or until opened. A listing that
+only lost files is applied at once. A failed check is silent; the next one
+tries again. While a sliding period (*Dernière heure*…) is active, the view
+is also redrawn every 60 s.
 
-- Every navigation pushes a history entry, unless the URL already names
-  that folder, so Back and Forward move between folders and loops are
-  impossible.
-- `popstate` / `hashchange` and page load call `followUrl()`, which
-  reveals the folder. Links to unknown shortcuts are dropped quietly.
+On the server, `list?auto=1` reaches the audit trail only when the same
+user has had no listing of that folder audited in the last 10 minutes
+(an in-memory map, pruned past 5,000 entries); ordinary listings always do.
+A folder watched all day thus adds at most 144 lines, not one a minute.
+
+### Navigation, the URL and history
+
+**The tree.** `ui.js` draws an ARIA tree: Tous les sites first, then each
+site with its folders only. `tree.reveal(sc, path)` marks the site, every
+folder on the way and the target as open, selects the target, and
+re-renders. Nodes fill in as their parents' listings arrive. Breadcrumb
+links, Up and the list's folder rows all navigate this way, so any folder
+can be reached whether or not its ancestors were open. In the HTA, the
+target had to be rendered already. A folder whose listing has no subfolders
+loses its chevron and `aria-expanded`. The arrows move, expand and collapse
+but never open anything, since each opening costs an FTP listing; Enter or
+Space opens. Trouver un site (`tree.find`) keeps the sites whose label has
+every typed word, plus the open one, and lists nothing over FTP. Up
+(`goUp`) opens the parent folder, or Tous les sites from a site's root, and
+selects the place it came from (`pendingSelect`).
+
+**The URL names the place.** `#/` is Tous les sites, and
+`#/<shortcut id>/<folder>/<folder>` a folder, each part URL-encoded
+(`formatHash` / `parseHash` in `util.js`). The breadcrumb's segments are
+real links to these, so Ctrl+click, a middle click and "copy link address"
+work as on any link.
+
+- Every navigation pushes a history entry (`pushEntry`), unless the URL
+  already names that place, so Back and Forward move between places and
+  loops are impossible. `popstate` / `hashchange` and page load call
+  `followUrl()`, which shows the place. Links to unknown shortcuts fall back
+  to Tous les sites quietly.
+- `history.state` is `{ idx, view, viewer }`:
+  - `idx` numbers the entries: a push writes the current index + 1, and
+    also stores it in `sessionStorage` as `qfe.maxIdx` (in try/catch), since
+    a push drops anything ahead. The ← button is disabled at index 0, so it
+    never leaves the app, and → at `qfe.maxIdx`.
+  - `view` is `{ query, filters, selected, focusKey, scrollTop }`, with up
+    to 200 selected keys. It is written with `replaceState` 300 ms after a
+    change, and at once before a push. Back, Forward and a reload (F5)
+    bring the search, the filters, the selection and the scroll back from
+    it; a new navigation starts clean.
+  - `viewer` is `{ key }`. Opening the viewer pushes an entry with the same
+    URL; Précédent and Suivant update its key with `replaceState`; closing
+    it (Esc, Fermer) calls `history.back()`. On `popstate`, an entry without
+    `viewer` closes the viewer and selects the last clip shown, and going
+    Forward to one with `viewer` reopens that clip. So Back, Alt+← and the
+    phone's back gesture close the viewer instead of changing the folder
+    behind it.
+- **`?open=<name>`** after the folder is a clip link
+  (`#/1234/Cameras?open=1234_Cam%201_202611011558.avi`), and only an
+  arrival form: `followUrl` rewrites the entry to the folder's URL, opens
+  the folder, then selects the clip and opens it, and the viewer pushes its
+  own entry, so Back closes the viewer and stays in the folder. A clip that
+  is no longer listed gives a notice instead. `parseHash` takes the query
+  from the first literal `?`, which can't occur inside an encoded segment,
+  and accepts a bare name only.
 - Signing in keeps the link. Browsers carry the fragment across the
   `/` → `/login` redirect; `login.js` copies it into the form's `next`
   field, and the server redirects back to `/` + `next` after sign-in.
   `next` is accepted only as `#/` followed by printable ASCII, so it can
-  never redirect out of the app.
+  never redirect out of the app; clip links pass too.
 - An expired session (a 401 from the API) keeps it too.
 
-**Narrow screens** (≤ 700 px, i.e. phones). The left pane becomes a drawer
-behind a **☰** button. It starts open when no folder is shown, and closes
-on any selection, on `Esc` or on a tap outside. The table drops its Type
-and Modified columns, the splitter disappears and the top bar compacts.
-CSS media queries do most of it; `app.js` only toggles `drawer-open`.
+### Narrow screens
+
+At 700 px and below (phones), one media query does most of the work, and
+`app.js` toggles a few classes:
+
+- The top bar keeps ☰, the current place's name (the breadcrumb's last
+  part), ⌕ and ↻, 44 px each. ⌕ lays the search field across the bar (an
+  Esc layer); Back, Forward and Up are hidden, since the system's Back
+  covers them.
+- The sites pane becomes a drawer (`drawer-open`) over a scrim; while it is
+  open the main area and the status bar are `inert`. It closes on any
+  choice, on Esc and on a tap outside, and it starts closed, the page
+  showing Tous les sites. Its foot holds the account controls, moved there
+  from the status bar: the same nodes, so the sign-out form keeps working.
+- The command bar keeps Trier, Filtres and Sélectionner. Filtres opens a
+  bottom-sheet `<dialog>`; the filter controls move into it while it is open
+  and back afterwards, so no id is duplicated. A line of chips shows the
+  active filters and the count.
+- Rows become two lines: the whole name, never cut, then a muted "date ·
+  caméra · taille" (the time alone under a day heading). The column header
+  and the status bar are hidden.
+- Sélectionner starts selection mode (`#app.selecting`, an Esc layer): a
+  check box on every file, taps that toggle, and a bar at the bottom with
+  the count, Tout sélectionner, the link and Télécharger. ×, Esc, leaving
+  the folder or unticking the last file ends it.
+- The viewer keeps Fermer and the caption on top, and puts Précédent, the
+  position, Suivant, the link and Télécharger in a bottom bar with 48 px
+  targets.
+
+### Opening files
 
 **Opening a file** follows `filetypes.js`:
 
-- images, playable audio and **every video** open in the viewer;
+- videos, and the images and audio the browser can show, open in the viewer
+  (`listview.viewable`);
 - other inline types (PDF, text) open in a new tab;
 - everything else is fetched with `download=1`.
+
+**The viewer** is a native `<dialog>` opened with `showModal()`, so the page
+behind it is inert. It steps through
+`playlist(rows, key, selected)`: the rows as shown, viewable ones only, or
+just the selection when two or more files are selected and the opened one
+is among them; there is no wrap-around. ←/→ and Home/End step unless the
+`<video>` or `<audio>` element has the focus (its own keys then seek), Page
+Up/Down always step, and Space plays or pauses. For 400 ms after opening,
+clicks on the stage are swallowed, so the end of a double-click or a double
+tap pauses nothing. "Lecture enchaînée" (`prefs.autoplay`) plays the next
+clip a second after one ends and announces it; a key or a click in that
+second cancels it.
 
 The viewer uses the browser's own `<video>` / `<audio>`, which seek
 through HTTP range requests. MP4, WebM and MOV files stream straight from
 FTP, and if the browser can't decode one, the viewer switches to `/play`.
-Other videos (AVI, MKV, DAV...) go to `/play` at once. Closing the viewer
-removes the media source, which aborts the request and so frees the FTP
-connection. When nothing plays, the viewer asks the server why (a one-byte
-request returns the JSON error) and shows that, with a download link.
+Other videos (AVI, MKV, DAV...) go to `/play` at once. Each step, and the
+closing, removes the media source, which aborts the request and so frees
+the FTP connection; nothing is loaded in advance. When nothing plays, the
+viewer asks the server why (a one-byte request returns the JSON error) and
+shows that, with a download link.
 
-**Roles in the UI.** Admins get `+ New` and a right-click menu (New / Edit
-/ Delete); everyone else keeps the browser's own context menu. Shortcut
-forms show server errors inline (400/409) instead of `alert()`. Edit leaves
-the password empty, because the stored one never reaches the browser.
+**Downloads and links.** Télécharger downloads one file with `download=1`.
+Two to 200 files of one site go through the [ZIP export](#zip-export): the
+page posts the paths with its local time, then follows the returned link, so
+the browser's download list shows the progress. More files, or files from
+several sites (search results), disable the button, with a tooltip saying
+why. Copier le lien builds `location.origin + location.pathname` + the hash
+of each selected row (a clip's with `?open=`), one per line, or of the open
+folder. On touch screens with `navigator.share` it opens the share sheet;
+when `navigator.clipboard.writeText` fails, a small dialog shows the links,
+selected.
+
+### Roles, languages and look
+
+**Roles in the UI.** Everyone gets the right-click menus. Admins also get
+`+ Nouveau site`, Modifier le site… and Supprimer le site in a site's menu,
+Nouveau site… on the tree's background, and the ⋯ button. The site form is a
+native `<dialog>` that shows server errors inline (400/409) instead of
+`alert()`; deleting still asks with `confirm()`. Edit leaves the password
+empty, because the stored one never reaches the browser.
 
 **English and French.** `i18n.js` holds every text in both languages, as
 one table that the server imports too (like `filetypes.js`), with plural
@@ -557,27 +814,47 @@ the browser's preferences (`Accept-Language`, `navigator.languages`),
 else English. Pages carry `data-i18n` / `data-i18n-attr` keys and start
 hidden (`i18n-pending`) until `translatePage()` has run, with a one-second
 CSS fallback so a broken script can never leave a blank page. Sizes read
-"1,5 Ko" and the listing's Unix dates ("Apr 01 2026") "1 avr. 2026" in
-French. On the server, `HttpError` takes `msg(key, params)`: logs and
-tests see English, and `fail()` answers in the reader's language, the
-error page included; parameters can be messages themselves (a field name
-inside "{field} is required"), and FTP replies stay as the server sent
-them.
+"1,5 Ko" in French. Times read "01/04/2026 14:34" in both languages, as
+Windows lists them, with a long form for tooltips ("mercredi 1 avril 2026 à
+14:34") and day headings; a date without a readable time keeps the
+listing's own text, "Apr 01 2026" becoming "1 avr. 2026" in French. French
+texts carry a no-break space before ":" and inside « », and a narrow one
+before ";", "?" and "!". On the server, `HttpError` takes
+`msg(key, params)`: logs and tests see English, and `fail()` answers in the
+reader's language, the error page included; parameters can be messages
+themselves (a field name inside "{field} is required"), and FTP replies
+stay as the server sent them.
 
 **Look and accessibility.** The palette comes from the Dessaud Alarme
 Service logo: an ink navy carries the frame (top bar, sign-in header,
-primary buttons), and the signal red is kept for the logo and for errors.
-Neutrals are tinted toward the navy. The colours are OKLCH custom
+primary buttons), and the signal red is kept for the logo, for errors and
+for Supprimer le site. Selection, filters and new-file tags use the navy and
+words. Neutrals are tinted toward the navy. The colours are OKLCH custom
 properties at the top of `styles.css`, and text and controls meet WCAG AA
-contrast. Sizes are in `rem`, so the browser's text-size setting applies;
-on phones every row and button is at least 44 px tall; and
-`prefers-reduced-motion` turns transitions off. The product and design
-principles behind these choices are in [PRODUCT.md](../PRODUCT.md).
+contrast. Sizes are in `rem`, 13 px at the least, and heights that hold
+text are minimums, so larger text never gets clipped; on phones every row
+and button is at least 44 px tall; and
+`prefers-reduced-motion` turns transitions off. The page has landmarks (the
+top bar as banner, `nav` for the sites and the breadcrumb, `main`, the
+status bar as `footer`), visually hidden `h1` and `h2` headings naming the
+page and the view, and a skip button to the list. Selected rows carry a
+tint, a bar and a tick, never colour alone, and Windows contrast themes
+(`forced-colors`) get system colours for the selection, the focus, `<mark>`
+and the check boxes. The splitter is a `role=separator`: drag it, click it
+to step through three widths, or use the arrow keys, Home, End and Enter.
+The product and design principles behind these choices are in
+[PRODUCT.md](../PRODUCT.md).
 
 **Safety.** Every name that comes from an FTP server reaches the page via
 `textContent` / DOM nodes, never as HTML. The page has no inline scripts or
-styles, so it runs under the strict `default-src 'self'` CSP. Only the
-splitter width is kept in `localStorage`, as a convenience.
+styles, so it runs under the strict `default-src 'self'` CSP. Dialogs are
+native `<dialog>`s. The browser's storage holds preferences only:
+`localStorage` keeps four (`prefs.js`: `qfe.sort`, `qfe.leftPaneWidth`,
+`qfe.hintDone`, `qfe.autoplay`), each read and written inside try/catch, so
+a private window or blocked storage simply gives the defaults, and
+`sessionStorage` keeps `qfe.maxIdx`. No file name is ever stored there; the
+views kept in `history.state` (search words, filters, selected keys) live
+and go with the tab's history.
 
 ## Audit trail
 
@@ -590,7 +867,11 @@ events, each with time, user and client IP:
 - `list` (shortcut `id` and `path`), `file` (`id`, `path`, and
   `download: true` for forced downloads) and `play` (`id`, `path`: a video
   opened through `/play`). A file is logged once per opening: ranged
-  requests that do not start at byte 0 (video seeks) are not logged again;
+  requests that do not start at byte 0 (video seeks) are not logged again.
+  The page's own checks for new files (`list?auto=1`) are logged only when
+  the same user has had no listing of that folder logged in the last 10
+  minutes ([Listings kept current](#listings-kept-current)); other listings
+  always are;
 - `export` (`id`, `count` and every `path`): a ZIP of several files,
   when it starts streaming.
 
@@ -608,8 +889,8 @@ a failed write is reported on stderr without failing the request.
 | `TRUST_PROXY` | off | Trust `X-Forwarded-Proto` / `X-Forwarded-For` from a reverse proxy. |
 | `SESSION_SECRET` | generated | HMAC key for sessions (≥ 32 characters). |
 | `SESSION_TTL_HOURS` | `12` | Session lifetime. |
-| `DEFAULT_FTP_HOST` | `127.0.0.1` | Host prefilled in the "New shortcut" form. |
-| `DEFAULT_FTP_PORT` | `21` | Port prefilled in the "New shortcut" form. |
+| `DEFAULT_FTP_HOST` | `127.0.0.1` | Host prefilled in the "New site" form. |
+| `DEFAULT_FTP_PORT` | `21` | Port prefilled in the "New site" form. |
 | `FTP_ALLOWED_HOSTS` | any | Comma-separated hosts shortcuts may point at, e.g. your one FTP server. |
 | `FTP_TIMEOUT_MS` | `15000` | How long the FTP server may stay silent before a request fails. |
 | `FTP_MAX_CONNECTIONS` | `10` | Simultaneous FTP connections per server, for all users together. |
@@ -632,24 +913,41 @@ dependencies:
   response, the audit trail, and `cli import` run as a real subprocess.
 - `tests/filetypes.test.js`: nothing that can carry script is ever inline.
 - `tests/util.test.js`: the UI's pure helpers (natural sort, labels, sizes,
-  paths, folder links, search matching with accents and several words).
+  paths and parent paths, `parseTime` with and without a zone, type-ahead,
+  folder and clip links, search matching with accents and several words).
+- `tests/clips.test.js`: clip names: site, camera and the recorder's time
+  to the minute or the second, Unix seconds, underscores, accents and
+  spaces in a camera's name, and names without a real stamp.
+- `tests/listview.test.js`: the list's logic. Row models and the Caméra
+  column; every sort with its tie-breaks; the periods (recent ones without
+  an end, yesterday over a clock change, around a time, custom ranges in
+  either order); the filters and their counts; the newest file; listing
+  diffs; day headings; the viewer's list.
+- `tests/selection.test.js`: File Explorer's selection rules: click, Ctrl,
+  Shift, Ctrl+Shift, the keys, select all, rows leaving the view.
+- `tests/prefs.test.js`: saved preferences come back, invalid ones are
+  refused, and storage that throws gives the defaults without an error.
 - `tests/i18n.test.js`: both languages have every text with the same
-  slots, every key the code and pages use exists, plurals and number
-  formats, the language choice, sizes and dates, and the server's errors
-  in French (cookie, `Accept-Language`, field names, the error page).
+  slots, French typography, every key the code and pages use exists,
+  plurals and number formats, the language choice, sizes, dates and times
+  as Windows lists them, and the server's errors in French (cookie,
+  `Accept-Language`, field names, the error page).
 - `tests/search.test.js`: the search's folder walk against a fake listing:
   every depth, links not followed, the folder, depth and concurrency
   limits, unreadable folders, cancellation.
-- `tests/ftp.test.js`: path and range parsing, error mapping, parity with
-  the legacy parser on `tests/fixtures/listing-unix.txt`, and the gateway
+- `tests/ftp.test.js`: path and range parsing, error mapping,
+  `modifiedTime` for MLSD, Unix and DOS lines (the missing year included)
+  and unknown dates, parity with the legacy parser on
+  `tests/fixtures/listing-unix.txt`, and the gateway
   against a server. Covered: the exact `CWD a` / `CWD b` / `LIST`
   sequence, login-directory-relative paths, NAT'd PASV (and proof plain
   basic-ftp fails there), MLSD, the login-failure pause, the connection
   cap and queue, deadlines, abandoned requests.
 - `tests/files-api.test.js`: browsing over HTTP: exact bytes, ranges, 416,
   `HEAD`, HTML/SVG served as attachments, PDF handling, servers without
-  `SIZE`, and FTP connections closing when a download is abandoned, a
-  range is satisfied, or the reader stalls.
+  `SIZE`, FTP connections closing when a download is abandoned, a range is
+  satisfied, or the reader stalls, and the audit of listings (the page's
+  own checks, `auto=1`, once per 10 minutes).
 - `tests/video.test.js`: telling browser-ready MP4s apart (built box by box
   in `tests/helpers/mp4.js`), and the converter with a stand-in for ffmpeg
   (`tests/helpers/fake-ffmpeg.js`): passthrough, temporary files cleaned
@@ -670,7 +968,8 @@ dependencies:
   lost connection reopened once, the audit line.
 - `tests/http.test.js`: the real server on an ephemeral port with a
   throwaway data directory (`tests/helpers/app.js`): pages, static files,
-  headers, sign-in, sign-out, throttling, proxy handling, the audit trail.
+  headers, sign-in (a folder or clip link survives it), sign-out,
+  throttling, proxy handling, the audit trail.
 - `tests/hygiene.test.js`: fails if the repository tracks runtime data
   (shortcut JSON, `data.csv`, `data/`, `.env`) or any routable IPv4 address.
   It exists because of the 2026-04-21 leak.
@@ -691,8 +990,12 @@ It logs every command, so tests can assert what was sent. No test ever
 touches a real FTP server.
 
 For development, `npm run dev:ftp` serves a demo tree on `127.0.0.1:2121`
-(user `demo`, password `demo`): a real PNG and PDF, accented names, and
-HTML/SVG files that must download. `node tests/dev-ftp.js --root <folder>`
+(user `demo`, password `demo`): a real PNG and PDF, accented names,
+HTML/SVG files that must download, and a `Cameras` folder of clips named
+the way recorders name them, for the Caméra and Date columns, the filters
+and the viewer's steps. Two cameras use 12-digit stamps and a third channel
+Unix seconds, dated back from the moment the server starts; their content
+is filler, so they don't play. `node tests/dev-ftp.js --root <folder>`
 serves a local folder instead, e.g. real clips to try video seeking.
 
 CI (`.github/workflows/ci.yml`) runs the suite on Node 22 and 24 for every

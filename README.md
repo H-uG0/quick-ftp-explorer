@@ -1,8 +1,8 @@
 # Quick FTP Explorer
 
-A small self-hosted web app to browse saved FTP shortcuts and open the files
-they contain &mdash; camera footage, snapshots, PDFs &mdash; with as little
-friction as possible. Deploy it once on a server; everyone else opens a URL,
+A small self-hosted web app to browse the FTP accounts of your sites and open
+the files they contain &mdash; camera footage, snapshots, PDFs &mdash; with
+as little friction as possible. Deploy it once on a server; everyone else opens a URL,
 signs in and browses, from any device, with nothing to install.
 
 > It started as a zero-install Windows HTA (`mshta.exe` + `curl.exe`).
@@ -13,41 +13,65 @@ signs in and browses, from any device, with nothing to install.
 
 ## Features
 
-- **File-Explorer-style browsing.** Shortcut and folder tree on the left,
-  name / type / size / modified table on the right, breadcrumb, refresh,
-  resizable panes.
+- **File-Explorer-style browsing.** The sites and their folders on the
+  left, starting from *All sites*; on the right, a list with **Camera** and
+  **Date** columns read from the clips' names (else the FTP time, in the
+  browser's time zone), newest first, with a heading per day. Breadcrumb
+  links, Back / Forward / Up, refresh, resizable panes.
+- **Sort and filter.** Sort by any column, from the headers or a *Sort*
+  list that says the order in words. Filter by period (last hour, today,
+  yesterday, around a given time, a custom range…), camera and file type,
+  each choice with its count.
+- **Select like in Explorer.** A click selects, a double-click or Enter
+  opens; Ctrl, Shift, check boxes and Ctrl+A select several files. The
+  keyboard reaches everything: arrow keys in the list and the tree,
+  Shift+F10 for the right-click menus everyone gets, Ctrl+F for the search,
+  `?` for help.
+- **Step through clips.** The viewer has Previous / Next through the list
+  as shown (or the selection), can play clips one after another, and the
+  Back button closes it.
+- **Several clips as one ZIP.** Up to 200 files of a site download as a
+  single archive, streamed as it is built; a file that couldn't be added is
+  listed in an `ERRORS.txt` inside it.
+- **Keeps up with new clips.** The open folder is checked every minute
+  while someone is looking at it; new files are announced ("2 new files ·
+  Show") and tagged, never slipped in under the pointer.
 - **In French and in English.** The interface follows the browser's
   language, with a switch to change it; error messages, dates and sizes
   too.
 - **Search that finds things.** Files and folders by name, in the open
   folder and all its subfolders or in every site, ignoring case and
-  accents; results show where each one is.
+  accents; results show where each one is, and follow the sort and the
+  filters.
 - **Links and the Back button.** The address bar names the open folder:
-  bookmark it, send it to a colleague (it survives the sign-in page), and
-  move between folders with Back and Forward.
-- **Phones too.** On narrow screens the shortcuts become a slide-in panel
-  and the table keeps only what fits.
+  bookmark it, or copy a link to a folder or to one clip, which opens in
+  the viewer (links survive the sign-in page). Back, Forward and F5 bring
+  back the search, the filters and the selection.
+- **Phones too.** On narrow screens the sites become a slide-in panel;
+  each row shows its date under the name; sort, filters and a selection
+  mode sit within thumb reach.
 - **Open files in the browser.** Images in a viewer with zoom and pan;
   video and audio in the browser's player, with seeking; PDFs and text in a
   new tab; everything else downloads.
 - **Camera clips just play.** Videos browsers can't decode (XviD/MPEG-4 in
   `.avi`, `.mkv`, `.dav`...) are converted to H.264 on the server with
   ffmpeg, and MP4 files a camera named `.avi` play as they are.
-- **Personal accounts.** Admins manage the shared shortcuts (`+ New`, or
+- **Personal accounts.** Admins manage the shared sites (`+ New site`, or
   right-click for Edit / Delete); everyone else browses.
 - **Safe by design.**
   - FTP passwords never reach a browser.
   - Files on the FTP server can never run script in the app.
   - Writes are protected against cross-site requests.
   - Sign-ins are throttled.
-  - An audit trail records sign-ins, shortcut changes and every opened file
-    or folder.
+  - An audit trail records sign-ins, site changes, every opened file or
+    folder, and every ZIP download.
 - **Works where the HTA worked.** Passive mode behaves like curl, so FTP
   servers behind NAT keep working. Paths are relative to the login
   directory, as before. Existing HTA shortcuts import as they are.
 - **Gentle on your FTP server.** All users now connect from one IP, so
-  connections per server are capped and queued, and a failing login pauses
-  the shortcut instead of risking an IP ban.
+  connections per server are capped and queued, a failing login pauses
+  the site instead of risking an IP ban, and a ZIP uses a single
+  connection.
 - **Small.** Node.js plus one dependency
   ([`basic-ftp`](https://github.com/patrickjuchli/basic-ftp)), and ffmpeg
   for video conversion (the Docker image includes it). No framework, no
@@ -65,10 +89,14 @@ npm run dev:ftp                          # terminal 1: a demo FTP server on 127.
 npm run dev                              # terminal 2: the app on http://127.0.0.1:8080
 ```
 
-Sign in, click **+ New**, and create a shortcut with username `demo`, host
+Sign in, click **+ New site**, and create a site with username `demo`, host
 `127.0.0.1` and port `2121`. The password defaults to the username. You can
-now browse a demo tree with an image, a PDF, accented names, and HTML and
-SVG files that download instead of rendering.
+now browse a demo tree with an image, a PDF, accented names, HTML and SVG
+files that download instead of rendering, and a `Cameras` folder of clips
+named the way recorders name them (`1234_Cam 1_<time>.avi`), dated from
+the moment the demo server started: try the Camera and Date columns, the
+filters and Previous / Next in the viewer. Their content is filler, so the
+viewer says they can't be played.
 
 To bring your HTA shortcuts along:
 `npm run cli -- import legacy/config/shortcuts`.
