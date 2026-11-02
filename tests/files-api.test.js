@@ -189,6 +189,23 @@ describe("listing and file API", () => {
     assert.equal(mp4.length, 0, "only ranges starting at 0 count as opening the file");
   });
 
+  test("the page's own checks (auto=1) are audited once per 10 minutes, other listings always", async () => {
+    const auditOf = async () => {
+      await t.app.audit.flush();
+      const events = (await readFile(path.join(t.dataDir, "audit.jsonl"), "utf8")).trim().split("\n").map(JSON.parse);
+      return events.filter((e) => e.event === "list" && e.path === "/Dossier avec accents éàü").length;
+    };
+    const auto = () => t.request(`/api/shortcuts/demo/list?${q("/Dossier avec accents éàü")}&auto=1`, { headers: { cookie: user } });
+    const before = await auditOf();
+    assert.equal((await auto()).status, 200);
+    assert.equal((await auto()).status, 200);
+    assert.equal(await auditOf(), before + 1, "two checks, one line");
+    assert.equal((await list("/Dossier avec accents éàü")).status, 200);
+    assert.equal(await auditOf(), before + 2, "an ordinary listing is always written");
+    assert.equal((await auto()).status, 200);
+    assert.equal(await auditOf(), before + 2, "and counts as the latest");
+  });
+
   test("the FTP password never appears in any response", async () => {
     const bodies = await Promise.all([
       list("/").then((r) => r.text()),

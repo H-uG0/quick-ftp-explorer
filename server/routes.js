@@ -10,7 +10,7 @@
  * API:    GET /api/me
  *         GET /api/shortcuts                     (admins also see host, port, username)
  *         POST /api/shortcuts  PUT|DELETE /api/shortcuts/:id   (admins only)
- *         GET /api/shortcuts/:id/list?path=      folder listing
+ *         GET /api/shortcuts/:id/list?path=[&auto=1]   folder listing (auto: the page's own check)
  *         GET|HEAD /api/shortcuts/:id/file?path=[&download=1]   file stream (Range)
  *         GET|HEAD /api/shortcuts/:id/play?path=   a video as an MP4 the browser can play (Range)
  *         POST /api/shortcuts/:id/zip            { paths, localTime? } -> { url, count, name }
@@ -208,11 +208,25 @@ export async function createApp(cfg, { log, ftp, video, zip } = {}) {
     return sc;
   }
 
+  // The page checks an open folder for new files every minute: those
+  // listings (auto=1) go to the audit trail only when the same user hasn't
+  // had that folder listed in the last 10 minutes. Others always do.
+  const AUTO_AUDIT_MS = 10 * 60_000;
+  const lastListed = new Map();   // "user\nid\npath" -> ms
+
   async function listFolder(ctx) {
     const sc = await requireShortcut(ctx.params.id);
     const rawPath = ctx.url.searchParams.get("path") || "/";
     const normalized = "/" + parseRemotePath(rawPath).join("/");
-    audit("list", { user: ctx.user.name, ip: ctx.ip, id: sc.id, path: normalized });
+    const key = [ctx.user.name, sc.id, normalized].join("\n");
+    const now = Date.now();
+    if (ctx.url.searchParams.get("auto") !== "1" || now - (lastListed.get(key) ?? 0) >= AUTO_AUDIT_MS) {
+      audit("list", { user: ctx.user.name, ip: ctx.ip, id: sc.id, path: normalized });
+      if (lastListed.size > 5000) {
+        for (const [k, at] of lastListed) if (now - at >= AUTO_AUDIT_MS) lastListed.delete(k);
+      }
+      lastListed.set(key, now);
+    }
     return { path: normalized, entries: await gateway.list(sc, rawPath, ctx.res) };
   }
 

@@ -35,7 +35,7 @@ import { scan, LIMITS } from "./search.js";
 import { icon } from "./icons.js";
 import {
   describeEntry, columnsFor, sortRows, sortFor, sortId, DEFAULT_SORT, FIRST_DIR, applyFilters, facets, activeFilters,
-  newestTime, playlist, groupByDay, NO_FILTERS, viewable,
+  newestTime, playlist, groupByDay, diffListing, NO_FILTERS, viewable,
 } from "./listview.js";
 import {
   useLanguage, browserLanguage, translatePage, switchLanguage, t, tn, language, formatSize, formatDateTime,
@@ -94,6 +94,8 @@ let pendingSelect = null;    // a key to select once its folder shows (Ouvrir l'
 let pendingOpen = null;      // a clip to open once its folder shows (a clip link)
 let restoring = null;        // a view history brings back (Back, F5)
 let viewId = "";
+let selecting = false;       // phones: taps tick files instead of opening them
+const fresh = new Map();     // key -> until when a new file keeps its "Nouveau" tag
 
 const isAdmin = () => me?.role === "admin";
 const viewName = () => (searching ? "search" : current ? "folder" : "home");
@@ -179,6 +181,7 @@ const gridCallbacks = {
   select(state) {
     selection = state;
     grid.update(state);
+    if (selecting && !state.selected.size) setSelecting(false);   // the last file unticked
     updateChrome();
     scheduleSave();
     if (state.selected.size === 1 && !prefs.get("hintDone") && !narrow.matches) status.hint.textContent = t("sel.hint");
@@ -277,8 +280,8 @@ function renderView() {
   if (!rows.length && all.length && hidden) empty = filteredOutNode(all);
   const id = `${viewName()}:${searching?.key ?? ""}:${current ? current.shortcut.id + "::" + current.path : ""}`;
   grid.render(fileList, {
-    id, label: view.label, mode: view.mode, columns, sort: effective, rows, groups,
-    checkboxes: !home && !narrow.matches, selecting: false,
+    id, label: view.label, mode: view.mode, columns, sort: effective, rows, groups, fresh: freshKeys(),
+    checkboxes: !home && (!narrow.matches || selecting), selecting,
     marks: view.marks ?? new Map(), places: view.places ?? new Map(), empty,
   }, gridCallbacks);
   if (id !== viewId) {
@@ -360,6 +363,21 @@ function updateChrome() {
   status.updated.textContent = loadedAt ? t("status.updated", { time: formatDateTime(loadedAt, "minute").slice(11) }) : "";
   if (!picked.length) status.hint.textContent = "";
 
+  // Phones, in selection mode: the bar at the bottom.
+  $("selection-bar").hidden = !selecting;
+  if (selecting) {
+    $("sel-count").textContent = tn("sel.count", picked.length);
+    const dl = downloadState(files);
+    const download = $("sel-download");
+    download.disabled = !dl.enabled;
+    download.title = dl.title || (files.length > 1 ? t("cmd.downloadCount", { n: files.length }) : t("cmd.download"));
+    download.setAttribute("aria-label", download.title);
+    const link = $("sel-link");
+    link.title = linkLabel(picked.length);
+    link.setAttribute("aria-label", link.title);
+    link.disabled = !picked.length;
+  }
+
   toolbar.update({
     visible: mode !== "home",
     columns,
@@ -439,6 +457,10 @@ async function onSelect(target) {
   const moved = !current || current.shortcut.id !== target.shortcut.id || current.path !== target.path;
   if (searching) clearSearch();   // as in File Explorer, going somewhere ends the search
   if (moved) {
+    setSelecting(false, { render: false });   // leaving the folder ends selection mode
+    hideNewFiles();
+    lastCheck = Date.now();
+    scheduleCheck();
     filters = { ...NO_FILTERS, ...restoring?.filters };
     selection = restoring ? restoredSelection(restoring) : sel.EMPTY;
     hideNotice();
@@ -490,6 +512,7 @@ async function refreshQuietly(seq) {
 
 function goHome({ push = true } = {}) {
   if (searching) clearSearch();
+  setSelecting(false, { render: false });
   current = null;
   filters = { ...NO_FILTERS };
   selection = restoring ? restoredSelection(restoring) : sel.EMPTY;
@@ -662,9 +685,12 @@ async function refresh() {
   const target = current;
   const seq = viewSeq;
   hideNotice();
+  hideNewFiles();
   grid.table()?.setAttribute("aria-busy", "true");
+  const before = tree.cached(target.shortcut, target.path);
   try {
-    await busy(t("nav.refreshing"), () => tree.refresh(target.shortcut, target.path, { quiet: true }));
+    const entries = await busy(t("nav.refreshing"), () => tree.refresh(target.shortcut, target.path, { quiet: true }));
+    if (before) tagNew(target.shortcut, target.path, diffListing(before, entries).added);
     listError = null;
   } catch (err) {
     if (seq !== viewSeq) return;
@@ -693,7 +719,93 @@ function follow(url, { newTab = false, download = false } = {}) {
   a.click();
 }
 
+/* ---- new files while you watch ---- */
+
+const CHECK_MS = 60_000, ACTIVE_MS = 30 * 60_000, TAG_MS = 10 * 60_000;
+let checkTimer = 0, lastCheck = 0, lastActivity = Date.now(), waiting = null;   // waiting: { sc, path, entries }
+
+function freshKeys() {
+  const now = Date.now();
+  for (const [key, until] of fresh) if (until <= now) fresh.delete(key);
+  return new Set(fresh.keys());
+}
+
+// The rows that just arrived keep a "Nouveau" tag for a while, or until opened.
+function tagNew(sc, path, entries) {
+  const until = Date.now() + TAG_MS;
+  for (const entry of entries) if (!entry.isDir) fresh.set(`${sc.id}::${path === "/" ? "" : path}/${entry.name}`, until);
+}
+
+function hideNewFiles() {
+  waiting = null;
+  $("new-files").hidden = true;
+}
+
+function showNewFiles(count) {
+  const box = $("new-files");
+  const show = el("button", "link-button", t("refresh.show"));
+  show.type = "button";
+  show.addEventListener("click", applyNewFiles);
+  box.replaceChildren(el("span", "", tn("refresh.new", count)), document.createTextNode(" · "), show);
+  if (box.hidden) announce(tn("refresh.new", count));
+  box.hidden = false;
+}
+
+// Afficher: the new listing, with the new files tagged and in their place;
+// the selection, the focus and the scroll stay.
+function applyNewFiles() {
+  if (!waiting || !current || waiting.sc.id !== current.shortcut.id || waiting.path !== current.path) return hideNewFiles();
+  const { sc, path, entries } = waiting;
+  tagNew(sc, path, diffListing(tree.cached(sc, path) ?? [], entries).added);
+  tree.store(sc, path, entries);
+  hideNewFiles();
+  renderView();
+}
+
+// Checks only when someone is looking: a folder open, the tab visible, the
+// user active lately, and nothing else on screen.
+function quietMoment() {
+  return current && !searching && document.visibilityState === "visible" && Date.now() - lastActivity < ACTIVE_MS &&
+    !viewer.isOpen() && !document.querySelector("dialog[open], .ctx-menu");
+}
+
+async function checkNewFiles() {
+  checkTimer = 0;
+  if (quietMoment() && tree.cached(current.shortcut, current.path)) {
+    const { shortcut: sc, path } = current;
+    lastCheck = Date.now();
+    try {
+      const entries = await api.listDir(sc.id, path, { auto: true });
+      if (current && current.shortcut.id === sc.id && current.path === path) {
+        const { added, removed } = diffListing(tree.cached(sc, path) ?? [], entries);
+        if (added.length || removed.length) {
+          waiting = { sc, path, entries };
+          if (added.length) showNewFiles(added.length);
+          else applyNewFiles();   // only files gone: nothing to read twice
+        }
+      }
+    } catch {
+      // silent: the next minute tries again
+    }
+  }
+  scheduleCheck();
+}
+
+function scheduleCheck() {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(checkNewFiles, CHECK_MS);
+}
+
+for (const type of ["pointerdown", "keydown"]) document.addEventListener(type, () => { lastActivity = Date.now(); }, true);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && Date.now() - lastCheck > CHECK_MS) {
+    clearTimeout(checkTimer);
+    checkNewFiles();
+  }
+});
+
 function openRow(row) {
+  fresh.delete(row.key);
   if (row.kind === "site") tree.reveal(row.sc, "/");
   else if (row.isDir) tree.reveal(row.sc, row.path);
   else openFile(row);
@@ -1048,6 +1160,26 @@ onShortcut((name, e) => {
       return false;
   }
 });
+
+/* ---- phones: selection mode ---- */
+
+function setSelecting(on, { render = true } = {}) {
+  if (selecting === on) return;
+  selecting = on;
+  appEl.classList.toggle("selecting", on);
+  if (on) layers.push("selecting", () => setSelecting(false));
+  else {
+    layers.remove("selecting");
+    selection = sel.clear(selection);
+  }
+  if (render) renderView();
+}
+$("select-mode").addEventListener("click", () => setSelecting(!selecting));
+$("sel-cancel").addEventListener("click", () => setSelecting(false));
+$("sel-all").addEventListener("click", selectAllFiles);
+$("sel-download").addEventListener("click", downloadSelection);
+$("sel-link").addEventListener("click", () => copyLinks());
+narrow.addEventListener("change", () => { if (!narrow.matches) setSelecting(false); });
 
 /* ---- "Trouver un site" ---- */
 

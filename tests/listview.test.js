@@ -8,7 +8,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   describeEntry, columnsFor, sortRows, sortFor, sortId, SORTS, periodRange, applyFilters, facets, activeFilters,
-  newestTime, playlist, groupByDay, NO_FILTERS, PERIODS,
+  newestTime, playlist, groupByDay, diffListing, NO_FILTERS, PERIODS,
 } from "../public/js/listview.js";
 
 const local = (...parts) => new Date(...parts).getTime();
@@ -200,6 +200,15 @@ describe("filters", () => {
     assert.deepEqual(newestTime(list), { ms: local(2026, 9, 31, 14, 30), precision: "minute" });
     assert.equal(newestTime(rows([dir("Archives"), file("notes.txt")])), null);
   });
+});
+
+test("diffListing: what arrived and what went, by name", () => {
+  const before = [file("a.avi"), file("b.avi"), dir("Archives")];
+  const after = [file("b.avi"), file("c.avi"), dir("Archives"), file("d.avi")];
+  const { added, removed } = diffListing(before, after);
+  assert.deepEqual(added.map((e) => e.name), ["c.avi", "d.avi"]);
+  assert.deepEqual(removed.map((e) => e.name), ["a.avi"]);
+  assert.deepEqual(diffListing(before, before), { added: [], removed: [] });
 });
 
 describe("day headings", () => {

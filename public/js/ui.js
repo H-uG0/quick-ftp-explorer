@@ -9,6 +9,7 @@
  *   tree.reveal(sc, path)                 open every ancestor and select a folder (onSelect)
  *   tree.selectHome()                     select "Tous les sites"
  *   tree.refresh(sc, path, { quiet })     load a listing again
+ *   tree.store(sc, path, entries)         keep a listing fetched elsewhere (a check for new files)
  *   tree.find(query)                      show only the sites whose label has every word
  *                                         (plus the open one); -> the first match, or null
  *   tree.focusFirstSite(), tree.focus(), tree.itemAt(target)
@@ -385,6 +386,13 @@ export const tree = {
     const entries = await listing(sc, path);
     if (!quiet || !before || folderNames(before) !== folderNames(entries)) renderAll();
     return entries;
+  },
+
+  store(sc, path, entries) {
+    const key = keyFor(sc.id, path);
+    const before = state.listings.get(key)?.entries;
+    state.listings.set(key, { entries, error: null, loadedAt: Date.now(), promise: Promise.resolve(entries) });
+    if (!before || folderNames(before) !== folderNames(entries)) renderAll();
   },
 
   focus() {

@@ -11,6 +11,7 @@
  *   activeFilters(filters)                 [{ name, value }] for chips and messages
  *   newestTime(rows)                       { ms, precision } of the newest file, or null
  *   groupByDay(rows, now)                  [{ kind, day, rows }]: day headings for a date sort
+ *   diffListing(before, after)             { added, removed }: entries, matched by name
  *   playlist(rows, key, selected)          { items, index }: what the viewer steps through
  *
  * A row's date is when the clip was recorded, read from its name, else when
@@ -224,6 +225,14 @@ export function newestTime(rows) {
     if (!row.isDir && row.time !== null && (!newest || row.time > newest.ms)) newest = { ms: row.time, precision: row.precision };
   }
   return newest;
+}
+
+/* ---- new files ---- */
+
+export function diffListing(before, after) {
+  const was = new Set(before.map((e) => e.name));
+  const is = new Set(after.map((e) => e.name));
+  return { added: after.filter((e) => !was.has(e.name)), removed: before.filter((e) => !is.has(e.name)) };
 }
 
 /* ---- day headings ---- */

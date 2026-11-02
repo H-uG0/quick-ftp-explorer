@@ -510,7 +510,8 @@ a { color: var(--link); }
   font-weight: 600;
 }
 .commandbar .btn-secondary { min-height: 30px; padding: 3px 10px; }
-.commandbar .filter-open { display: none; }
+.commandbar .filter-open, .commandbar .select-mode { display: none; }
+.selection-bar { display: none; }
 
 /* Phones only: on desktop the selects already say what is on. */
 .filter-summary {
@@ -547,6 +548,28 @@ a { color: var(--link); }
   color: var(--danger);
   background: var(--danger-soft);
   border-bottom: 1px solid var(--danger-line);
+}
+
+/* New files: a quiet line, never red; the rows get a navy "Nouveau". */
+.new-files {
+  padding: 6px 12px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--selected);
+  border-bottom: 1px solid var(--border);
+}
+.new-files .link-button { font-weight: 600; }
+.tag-new {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 9px;
+  vertical-align: 1px;
 }
 
 /* ---- the list (right pane) ---- */
@@ -1275,6 +1298,26 @@ audio.viewer-media {
   .cmd-sort { flex: 1 1 auto; }
   .cmd-sort select { width: 100%; min-height: 40px; }
   .commandbar .filter-open { display: inline-flex; min-height: 40px; }
+  .commandbar .select-mode { display: inline-flex; width: 44px; min-height: 40px; flex-shrink: 0; }
+  #app.selecting .select-mode { background: var(--selected); border-color: var(--primary); }
+
+  /* Selection mode: a box on every file, and the bar at the bottom. */
+  .file-table.selecting td.col-check { display: table-cell; width: 44px; padding: 0 0 0 10px; }
+  .file-table.selecting .check { visibility: visible; width: 22px; height: 22px; }
+  .file-table.selecting tbody tr.selected .check::after { left: 6.5px; top: 2px; width: 6px; height: 11px; }
+  .selection-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    background: var(--surface-alt);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .selection-bar[hidden] { display: none; }
+  .selection-bar button { min-height: 44px; }
+  .selection-bar .btn-icon { width: 44px; }
+  .sel-count { flex: 1 1 auto; font-weight: 600; }
   .commandbar .btn-secondary { min-height: 40px; }
 
   /* Rows: the name, never cut, then one muted line. */

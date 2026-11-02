@@ -9,7 +9,8 @@
  *   grid.rowAt(target), grid.rows(), grid.table(), grid.focusedRow()
  *
  *   model = { id, label, mode: "folder" | "search" | "home", columns, sort, rows,
- *             groups: [{ label, rows }] (day headings, or none),
+ *             groups: [{ label, rows }] (day headings, or none), selecting (taps tick),
+ *             fresh: Set of keys tagged "Nouveau",
  *             checkboxes, marks: Map(key -> ranges), places: Map(key -> text), empty }
  *   callbacks = { selection(), select(state), open(row), sort(key), middle(row), escape() }
  *
@@ -100,6 +101,7 @@ function buildRow(row) {
   name.append(iconEl);
   if (row.isDir) name.append(el("span", "sr-only", t(row.kind === "site" ? "a11y.site" : "a11y.folder")));
   name.append(nameNode(row.name, model.marks.get(row.key)));
+  if (model.fresh?.has(row.key)) name.append(el("span", "tag-new", t("refresh.tag")));
   if (model.places.has(row.key)) name.append(el("span", "result-location", model.places.get(row.key)));
   // Phones show one line under the name instead of the other columns; under
   // a day heading, the time is enough.
@@ -180,6 +182,7 @@ function render(target, nextModel, nextCallbacks) {
   tableEl.setAttribute("aria-multiselectable", "true");
   tableEl.setAttribute("aria-label", model.label);
   tableEl.classList.toggle("with-checks", model.checkboxes);
+  tableEl.classList.toggle("selecting", !!model.selecting);
   tableEl.append(buildHead());
   // One <tbody> per day heading; the headings take no focus, and the keys
   // and range selection go by `order`, which skips them.

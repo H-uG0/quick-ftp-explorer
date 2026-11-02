@@ -7,7 +7,8 @@
  *   createShortcut(fields)            -> id
  *   updateShortcut(id, fields)        -> id (changes when the username does)
  *   deleteShortcut(id)
- *   listDir(id, path)                 [{ name, isDir, isLink, size, date }]
+ *   listDir(id, path, { auto })       [{ name, isDir, isLink, size, date, modified }];
+ *                                     auto: the page's own check for new files
  *   fileUrl(id, path, { download })   URL for <img>, <video>, links
  *   playUrl(id, path)                 URL of a video as an MP4 the browser can play
  *   prepareZip(id, paths, localTime)  { url, count, name }: a one-time link to those files as one ZIP
@@ -60,8 +61,8 @@ export const updateShortcut = async (id, fields) => (await call("PUT", shortcutU
 
 export const deleteShortcut = (id) => call("DELETE", shortcutUrl(id));
 
-export const listDir = async (id, path) =>
-  (await call("GET", `${shortcutUrl(id)}/list?path=${encodeURIComponent(path)}`)).entries;
+export const listDir = async (id, path, { auto = false } = {}) =>
+  (await call("GET", `${shortcutUrl(id)}/list?path=${encodeURIComponent(path)}${auto ? "&auto=1" : ""}`)).entries;
 
 export function fileUrl(id, path, { download = false } = {}) {
   return `${shortcutUrl(id)}/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;

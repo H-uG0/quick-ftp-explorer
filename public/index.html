@@ -86,6 +86,9 @@
             <select id="sort-select"></select>
           </div>
           <button type="button" id="filter-open" class="btn-secondary filter-open"><span class="btn-label" data-i18n="filter.group">Filters</span></button>
+          <button type="button" id="select-mode" class="btn-secondary btn-icon select-mode" aria-label="Select" title="Select" data-i18n-attr="aria-label: sel.mode; title: sel.mode">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.75 2.75h10.5v10.5H2.75zM5.25 8.25l2 2 3.5-4"/></svg>
+          </button>
           <div id="filter-group" class="cmd-group cmd-filters" role="group" aria-label="Filters" data-i18n-attr="aria-label: filter.group">
             <div class="field-inline">
               <label for="f-period" data-i18n="filter.period">Period</label>
@@ -116,9 +119,19 @@
         </div>
         <div id="filter-summary" class="filter-summary" hidden></div>
         <div id="notice" class="notice" role="alert" hidden></div>
+        <div id="new-files" class="new-files" hidden></div>
         <div id="results-header" class="search-header" hidden></div>
         <div id="file-list" class="file-list">
           <p class="placeholder muted" data-i18n="common.loading">Loading&hellip;</p>
+        </div>
+        <div id="selection-bar" class="selection-bar" hidden>
+          <button type="button" id="sel-cancel" class="btn-secondary btn-icon" aria-label="Cancel selection" title="Cancel selection" data-i18n-attr="aria-label: sel.cancel; title: sel.cancel">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+          </button>
+          <span id="sel-count" class="sel-count"></span>
+          <button type="button" id="sel-all" class="btn-secondary" data-i18n="menu.selectAll">Select all</button>
+          <button type="button" id="sel-link" class="btn-secondary btn-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.75 9.25a2.5 2.5 0 0 0 3.54 0l2.47-2.47a2.5 2.5 0 0 0-3.54-3.54l-.9.9M9.25 6.75a2.5 2.5 0 0 0-3.54 0L3.24 9.22a2.5 2.5 0 0 0 3.54 3.54l.9-.9"/></svg></button>
+          <button type="button" id="sel-download" class="btn-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.25v8M4.75 7.25 8 10.5l3.25-3.25M2.75 13.25h10.5"/></svg></button>
         </div>
       </main>
     </div>
