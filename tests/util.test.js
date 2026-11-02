@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   joinPath, sortEntries, splitLabel, composeLabel, formatHash, parseHash, searchTerms, matchName,
+  parentPath, parseTime, typeAhead,
 } from "../public/js/util.js";
 
 test("joinPath", () => {
@@ -13,6 +14,40 @@ test("joinPath", () => {
   assert.equal(joinPath("", "Images"), "/Images");
   assert.equal(joinPath("/Images", "2026"), "/Images/2026");
   assert.equal(joinPath("/Images/", "2026"), "/Images/2026");
+});
+
+test("parentPath", () => {
+  assert.equal(parentPath("/Images/2026"), "/Images");
+  assert.equal(parentPath("/Images"), "/");
+  assert.equal(parentPath("/"), null);
+});
+
+// Built with new Date(...), so the tests mean the same in every time zone.
+test("parseTime: no zone is local time, Z is exact, a bare day is a day", () => {
+  const local = (...parts) => new Date(...parts).getTime();
+  assert.deepEqual(parseTime("2026-10-30T08:30"), { ms: local(2026, 9, 30, 8, 30), precision: "minute" });
+  assert.deepEqual(parseTime("2026-10-30T08:30:12"), { ms: local(2026, 9, 30, 8, 30, 12), precision: "second" });
+  assert.deepEqual(parseTime("2026-04-01"), { ms: local(2026, 3, 1), precision: "day" });
+  assert.deepEqual(parseTime("2026-10-30T07:30:12Z"), { ms: Date.UTC(2026, 9, 30, 7, 30, 12), precision: "second" });
+  assert.deepEqual(parseTime("2026-10-30T07:30:12.250Z"), { ms: Date.UTC(2026, 9, 30, 7, 30, 12, 250), precision: "second" });
+  assert.deepEqual(parseTime("2026-10-30T07:30Z"), { ms: Date.UTC(2026, 9, 30, 7, 30), precision: "minute" });
+  for (const bad of [null, undefined, "", "Apr 01 2026", "2026-10-30 08:30", "2026-02-30", "2026-13-01", "2026-10-30T24:00",
+    "2026-10-30T08:60", "2026-10-30T08:30+01:00", "1793345412"]) {
+    assert.equal(parseTime(bad), null, String(bad));
+  }
+});
+
+test("typeAhead: the next label starting with what was typed, accents and case ignored", () => {
+  const labels = ["Accueil", "Bureau", "Bâtiment B", "Cave", "bassin"];
+  assert.equal(typeAhead(labels, "b"), 1);
+  assert.equal(typeAhead(labels, "b", 1), 2, "the same letter moves on");
+  assert.equal(typeAhead(labels, "bb", 2), 4, "and on, as long as it is the same letter");
+  assert.equal(typeAhead(labels, "b", 4), 1, "round to the top");
+  assert.equal(typeAhead(labels, "bat", 1), 2, "a word, accents ignored");
+  assert.equal(typeAhead(labels, "bur", 1), 1, "a word may match where the focus already is");
+  assert.equal(typeAhead(labels, "z"), -1);
+  assert.equal(typeAhead([], "a"), -1);
+  assert.equal(typeAhead(labels, ""), -1);
 });
 
 test("sortEntries: folders first, then natural, case-insensitive order", () => {

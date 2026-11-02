@@ -3,6 +3,9 @@
  * the test suite can import them.
  *
  *   joinPath(parent, name)          "/a" + "b" -> "/a/b"
+ *   parentPath(path)                "/a/b" -> "/a", "/a" -> "/", "/" -> null
+ *   parseTime(text)                 { ms, precision: "day" | "minute" | "second" }, or null
+ *   typeAhead(labels, typed, from)  the index of the next label starting with what was typed
  *   compareEntries(a, b)            folders first, then natural, case-insensitive order
  *   sortEntries(entries)            a sorted copy
  *   fold(text)                      { text, from }: lower case, no accents, mapped back
@@ -21,6 +24,46 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 export function joinPath(parent, name) {
   if (!parent || parent === "/") return "/" + name;
   return parent.replace(/\/+$/, "") + "/" + name;
+}
+
+export function parentPath(path) {
+  const parts = String(path).split("/").filter(Boolean);
+  if (!parts.length) return null;
+  return "/" + parts.slice(0, -1).join("/");
+}
+
+// A listing's `modified` or a clip's time (modifiedTime in server/ftp.js,
+// clips.js). "...Z" is an exact moment. Text without a zone is this
+// browser's local time, built field by field: Date.parse would read a bare
+// day as UTC. Impossible days give null; a time in the hour the clocks skip
+// is kept, as the recorder wrote it.
+export function parseTime(text) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z)?)?$/.exec(String(text ?? ""));
+  if (!m) return null;
+  const [y, mo, d, h, mi, s] = [m[1], m[2], m[3], m[4] ?? 0, m[5] ?? 0, m[6] ?? 0].map(Number);
+  const frac = Number((m[7] ?? "0").padEnd(3, "0"));
+  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || s > 59) return null;
+  const day = new Date(Date.UTC(y, mo - 1, d));
+  if (day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d) return null;
+  const ms = m[8] ? Date.UTC(y, mo - 1, d, h, mi, s, frac) : new Date(y, mo - 1, d, h, mi, s, frac).getTime();
+  return { ms, precision: m[4] === undefined ? "day" : m[6] === undefined ? "minute" : "second" };
+}
+
+// Type-ahead, as in Explorer: the next label after `from` that starts with
+// what was typed in the last second, ignoring accents and case. Typing the
+// same letter again moves on to the next label starting with it; a longer
+// word may match the current label itself. -1 when nothing matches.
+export function typeAhead(labels, typed, from = -1) {
+  const text = fold(typed).text;
+  if (!text || !labels.length) return -1;
+  const repeated = [...text].every((c) => c === text[0]);
+  const prefix = repeated ? text[0] : text;
+  const start = from < 0 ? 0 : from + (repeated ? 1 : 0);
+  for (let i = 0; i < labels.length; i++) {
+    const at = (start + i) % labels.length;
+    if (fold(labels[at]).text.startsWith(prefix)) return at;
+  }
+  return -1;
 }
 
 export function compareEntries(a, b) {

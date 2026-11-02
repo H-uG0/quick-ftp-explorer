@@ -12,7 +12,7 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { Client, FTPError, parseList } from "basic-ftp";
-import { createGateway, parseRemotePath, parseRange, toHttpError } from "../server/ftp.js";
+import { createGateway, parseRemotePath, parseRange, toHttpError, modifiedTime } from "../server/ftp.js";
 import { startFakeFtp } from "./helpers/fake-ftp-server.js";
 import { waitFor } from "./helpers/app.js";
 
@@ -88,6 +88,49 @@ describe("toHttpError", () => {
   });
 });
 
+describe("modifiedTime", () => {
+  const now = new Date(2026, 9, 31, 15, 0);   // 31 Oct 2026, 15:00, wherever the tests run
+  const raw = (rawModifiedAt) => modifiedTime({ rawModifiedAt }, now);
+
+  test("MLSD: exact UTC, to the second", () => {
+    assert.equal(modifiedTime({ modifiedAt: new Date(Date.UTC(2026, 9, 30, 7, 30, 12)) }), "2026-10-30T07:30:12Z");
+    assert.equal(modifiedTime({ modifiedAt: new Date(Date.UTC(2026, 9, 30, 7, 30, 12, 250)) }), "2026-10-30T07:30:12.250Z");
+  });
+
+  test("Unix LIST: the server's clock, no time zone; a bare day for old files", () => {
+    assert.equal(raw("Oct 30 08:30"), "2026-10-30T08:30");
+    assert.equal(raw("Apr 01 2026"), "2026-04-01");
+    assert.equal(raw("Dec 24 2019"), "2019-12-24");
+    assert.equal(raw("30 Oct 08:30"), "2026-10-30T08:30", "day first, as some locales print it");
+    assert.equal(raw("2026-10-30 08:30"), "2026-10-30T08:30", "ls --time-style=long-iso");
+    assert.equal(raw("oct  3 8:05"), "2026-10-03T08:05");
+  });
+
+  test("Unix LIST: a time without a year is in the past year when this year's is to come", () => {
+    assert.equal(raw("Nov 01 09:00"), "2026-11-01T09:00", "tomorrow morning: a server a few hours ahead");
+    assert.equal(raw("Dec 15 10:00"), "2025-12-15T10:00");
+    assert.equal(modifiedTime({ rawModifiedAt: "Jan 02 10:00" }, new Date(2027, 0, 1, 12, 0)), "2027-01-02T10:00");
+    assert.equal(modifiedTime({ rawModifiedAt: "Dec 31 23:59" }, new Date(2027, 0, 1, 0, 30)), "2026-12-31T23:59");
+  });
+
+  test("DOS / IIS LIST", () => {
+    assert.equal(raw("10-30-26 08:30AM"), "2026-10-30T08:30");
+    assert.equal(raw("10-30-26 12:05AM"), "2026-10-30T00:05");
+    assert.equal(raw("10-30-26 12:05PM"), "2026-10-30T12:05");
+    assert.equal(raw("10-30-26 08:30PM"), "2026-10-30T20:30");
+    assert.equal(raw("10-30-2026 20:30"), "2026-10-30T20:30");
+    assert.equal(raw("12-05-96 05:03PM"), "1996-12-05T17:03");
+  });
+
+  test("anything else is unknown, not a guess", () => {
+    for (const bad of ["", "Okt 30 08:30", "Feb 30 2026", "13-01-26 08:30AM", "10-30-26 13:30PM", "Oct 30 24:10",
+      "2026-13-01 08:30", "yesterday", "1730000000"]) {
+      assert.equal(raw(bad), null, JSON.stringify(bad));
+    }
+    assert.equal(modifiedTime({ modifiedAt: new Date(NaN), rawModifiedAt: "" }), null);
+  });
+});
+
 describe("listing parity with the legacy HTA parser", () => {
   test("basic-ftp reads the legacy fixture into the 8 entries test-parser.hta asserts", async () => {
     const text = await readFile(path.join(import.meta.dirname, "fixtures", "listing-unix.txt"), "utf8");
@@ -110,8 +153,12 @@ describe("gateway against an FTP server", () => {
   test("lists with a plain LIST, like curl, into the UI's entry shape", () => withFtp({}, async (ftp) => {
     const entries = await createGateway().list(shortcut(ftp), "/", fakeRes());
     const by = Object.fromEntries(entries.map((e) => [e.name, e]));
-    assert.deepEqual(by["Images"], { name: "Images", isDir: true, isLink: false, size: 4096, date: "Apr 01 2026" });
-    assert.deepEqual(by["photo été.jpg"], { name: "photo été.jpg", isDir: false, isLink: false, size: 1024, date: "Apr 01 2026" });
+    assert.deepEqual(by["Images"], {
+      name: "Images", isDir: true, isLink: false, size: 4096, date: "Apr 01 2026", modified: "2026-04-01",
+    });
+    assert.deepEqual(by["photo été.jpg"], {
+      name: "photo été.jpg", isDir: false, isLink: false, size: 1024, date: "Apr 01 2026", modified: "2026-04-01",
+    });
     assert.equal(by["latest"].isLink, true);
     assert.ok(!by["."] && !by[".."]);
     assert.ok(ftp.commands.includes("LIST"));
@@ -161,7 +208,7 @@ describe("gateway against an FTP server", () => {
 
   test("MLSD listings carry exact UTC dates", () => withFtp({ mlsd: true }, async (ftp) => {
     const entries = await createGateway().list(shortcut(ftp), "/", fakeRes());
-    assert.equal(entries.find((e) => e.name === "Images").date, "2026-04-01 12:34");
+    assert.equal(entries.find((e) => e.name === "Images").modified, "2026-04-01T12:34:00Z");
     assert.equal(entries.find((e) => e.name === "empty.txt").size, 0);
     assert.ok(ftp.commands.includes("MLSD"));
   }));

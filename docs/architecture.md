@@ -207,7 +207,7 @@ told where the FTP server lives.
 
 | Method + path | Role | Response |
 |---|---|---|
-| `GET /api/shortcuts/:id/list?path=/a/b` | user | `{ path, entries: [{ name, isDir, isLink, size, date }] }` |
+| `GET /api/shortcuts/:id/list?path=/a/b` | user | `{ path, entries: [{ name, isDir, isLink, size, date, modified }] }` (see [Listings](#listings)) |
 | `GET` or `HEAD /api/shortcuts/:id/file?path=/a/b/c.mp4[&download=1]` | user | The file, streamed, with `Range` support |
 | `GET` or `HEAD /api/shortcuts/:id/play?path=/a/b/c.avi` | user | The video as an MP4 the browser can play, with `Range` support ([Playing videos](#playing-videos)) |
 
@@ -273,9 +273,27 @@ costs one timeout per server, not one per request.
 and DOS parsers are more forgiving than the HTA's Unix-only one; on the
 legacy fixture they produce the same 8 entries. `LIST -a` is never sent:
 curl sends a plain `LIST`, and `-a` adds dotfiles and confuses some servers.
-Dates are whatever the server prints (`Apr 01 2026`), or `YYYY-MM-DD HH:MM`
-(UTC) for MLSD. A listing may not exceed 8 MiB or take longer than 60 s
-(curl had `--max-time 60`).
+A listing may not exceed 8 MiB or take longer than 60 s (curl had
+`--max-time 60`).
+
+Each entry keeps the date as the listing printed it (`date`), and adds
+`modified`, the same moment as ISO 8601 text the browser can sort and
+filter (`modifiedTime` in `server/ftp.js`):
+
+| Listing | `modified` | Shown |
+|---|---|---|
+| MLSD (`modify=20261030073012`) | `2026-10-30T07:30:12Z`: exact, UTC | in the browser's time zone |
+| Unix `LIST`, recent (`Oct 30 08:30`) | `2026-10-30T08:30`: no zone | as printed |
+| Unix `LIST`, older than six months (`Apr 01 2025`) | `2025-04-01`: the day only | the day only |
+| Unix long ISO (`2026-10-30 08:30`), DOS (`10-30-26 08:30AM`) | `2026-10-30T08:30` | as printed |
+| anything else (`Okt 30 08:30`) | `null` | the raw `date`, muted |
+
+`LIST` prints the FTP server's own clock without naming its time zone, so
+those times carry none and the browser shows them as printed. Recent Unix
+lines leave out the year: it is the current one, unless that would put the
+date more than a day in the future (so `Dec 31 23:50` listed on 1 January
+is last year's). Before `modified`, MLSD times were shown in UTC, an hour
+or two early in France.
 
 ### Streaming files
 

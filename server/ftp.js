@@ -2,7 +2,7 @@
  * ftp.js - the FTP gateway: the only code that talks to FTP servers.
  *
  *   createGateway(options)
- *     list(sc, path, res)               -> [{ name, isDir, isLink, size, date }]
+ *     list(sc, path, res)               -> [{ name, isDir, isLink, size, date, modified }]
  *     stream(sc, path, req, res, opts)  pipe one file into the HTTP response
  *     fetch(sc, path, { maxBytes })     -> Buffer: one whole file (video conversion)
  *     forget(id)                        lift the login-failure pause of a shortcut
@@ -10,6 +10,7 @@
  *   parseRange(header, size)            null | "unsatisfiable" | { start, end }
  *   fileHeaders(name, type, size, range, length)   headers of a served file
  *   toHttpError(err)                    FTP/network error -> readable HttpError
+ *   modifiedTime(info, now)             a listing's date as ISO 8601 text, or null
  *
  * Paths behave like the legacy HTA's curl calls: "/"-rooted in the UI but
  * relative to the FTP login directory. The gateway walks them with one CWD
@@ -188,6 +189,62 @@ export function toHttpError(err) {
   return new HttpError(502, msg("err.ftpFailed", { reason: reply || err?.code || msg("err.ftpUnknown") }));
 }
 
+/* ---- listing times ---- */
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const pad = (n) => String(n).padStart(2, "0");
+
+// "2026-10-30T08:30", or "2026-10-30" without a time; null if no such moment.
+function wallClock(year, month, day, hour, minute) {
+  const d = new Date(Date.UTC(year, month - 1, day, hour ?? 0, minute ?? 0));
+  if (d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day || hour > 23 || minute > 59) return null;
+  const date = `${year}-${pad(month)}-${pad(day)}`;
+  return hour === undefined ? date : `${date}T${pad(hour)}:${pad(minute)}`;
+}
+
+// When an entry was last modified, as ISO 8601 text that sorts as it reads,
+// or null when the listing doesn't say in a form we know. MLSD times are
+// exact and in UTC ("2026-10-30T07:30:00Z"): the browser shows them in its
+// own time zone. LIST prints the FTP server's clock without naming its time
+// zone, so those carry none ("2026-10-30T08:30") and are shown as printed;
+// `ls` gives only the day for files older than six months ("2026-04-01").
+// `now` settles the year `ls` leaves out for recent files.
+export function modifiedTime(info, now = new Date()) {
+  const at = info.modifiedAt;
+  if (at instanceof Date && Number.isFinite(at.getTime())) return at.toISOString().replace(".000Z", "Z");
+  const raw = String(info.rawModifiedAt ?? "").trim();
+  // Unix: "Oct 30 08:30", "Apr 01 2026", or the day first ("30 Oct 08:30").
+  let m = /^(?:([a-z]{3})\s+(\d{1,2})|(\d{1,2})\s+([a-z]{3}))\s+(?:(\d{4})|(\d{1,2}):(\d{2}))$/i.exec(raw);
+  if (m) {
+    const month = MONTHS.indexOf((m[1] ?? m[4]).toLowerCase()) + 1;
+    const day = Number(m[2] ?? m[3]);
+    if (!month) return null;
+    if (m[5]) return wallClock(Number(m[5]), month, day);
+    const [hour, minute] = [Number(m[6]), Number(m[7])];
+    // This year, unless that is still to come (a day's grace for time zones).
+    let year = now.getFullYear();
+    const today = Date.UTC(year, now.getMonth(), now.getDate(), now.getHours(), now.getMinutes());
+    if (Date.UTC(year, month - 1, day, hour, minute) > today + 86_400_000) year--;
+    return wallClock(year, month, day, hour, minute);
+  }
+  // Unix, long ISO style: "2026-10-30 08:30".
+  m = /^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})$/.exec(raw);
+  if (m) return wallClock(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]));
+  // DOS / IIS: "10-30-26 08:30AM", "10-30-2026 20:30".
+  m = /^(\d{2})-(\d{2})-(\d{2}|\d{4})\s+(\d{1,2}):(\d{2})\s*([AP]M)?$/i.exec(raw);
+  if (m) {
+    let year = Number(m[3]);
+    if (m[3].length === 2) year += year < 70 ? 2000 : 1900;
+    let hour = Number(m[4]);
+    if (m[6]) {
+      if (hour < 1 || hour > 12) return null;
+      hour = (hour % 12) + (m[6].toUpperCase() === "PM" ? 12 : 0);
+    }
+    return wallClock(year, Number(m[1]), Number(m[2]), hour, Number(m[5]));
+  }
+  return null;
+}
+
 /* ---- responses ---- */
 
 function toEntry(info) {
@@ -196,8 +253,8 @@ function toEntry(info) {
     isDir: info.isDirectory,
     isLink: info.isSymbolicLink,
     size: info.size,
-    // MLSD gives exact UTC times; LIST gives whatever the server prints.
-    date: info.modifiedAt ? info.modifiedAt.toISOString().slice(0, 16).replace("T", " ") : info.rawModifiedAt,
+    date: info.rawModifiedAt,        // as the listing printed it
+    modified: modifiedTime(info),    // the same, readable by the browser (or null)
   };
 }
 

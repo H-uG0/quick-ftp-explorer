@@ -12,6 +12,8 @@
  *                                  best of Accept-Language, else English
  *   formatSize(bytes, lang)        "1.5 KB" / "1,5 Ko"
  *   formatDate(raw, lang)          an FTP listing's "Apr 01 2026" as "1 avr. 2026"
+ *   formatDateTime(ms, precision)  "01/04/2026 14:34", as Windows lists times
+ *   formatLongDateTime(ms, precision, lang)   "mercredi 1 avril 2026 à 14:34:00"
  *
  * In the browser, once useLanguage() has run:
  *   t(key, params) / tn(key, n, params)   translate into the page's language
@@ -388,6 +390,35 @@ export function formatDate(raw, lang = "en") {
     return `${day.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })} ${m[4]}:${m[5]}`;
   }
   return text;
+}
+
+// A time from util.parseTime, the way Windows lists it: "01/04/2026 14:34",
+// with seconds when known, or the day alone. The app's English is en-GB, so
+// both languages read the same. Built from local fields: thousands of rows
+// are drawn at once.
+const pad2 = (n) => String(n).padStart(2, "0");
+export function formatDateTime(ms, precision = "minute") {
+  const d = new Date(ms);
+  const day = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  if (precision === "day") return day;
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  return precision === "second" ? `${day} ${time}:${pad2(d.getSeconds())}` : `${day} ${time}`;
+}
+
+// The long form, for tooltips: "mercredi 1 avril 2026 à 14:34:00".
+const longFormats = new Map();
+export function formatLongDateTime(ms, precision = "minute", lang = "en") {
+  const key = `${valid(lang)}:${precision}`;
+  let format = longFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(LOCALES[valid(lang)], {
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+      ...(precision !== "day" && { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+      ...(precision === "second" && { second: "2-digit" }),
+    });
+    longFormats.set(key, format);
+  }
+  return format.format(ms);
 }
 
 /* ---- in the browser ---- */

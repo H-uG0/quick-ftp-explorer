@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { readdirSync, readFileSync } from "node:fs";
 import {
-  MESSAGES, translate, plural, msg, pickLanguage, formatSize, formatDate,
+  MESSAGES, translate, plural, msg, pickLanguage, formatSize, formatDate, formatDateTime, formatLongDateTime,
 } from "../public/js/i18n.js";
 import { startApp, PASSWORD } from "./helpers/app.js";
 
@@ -32,8 +32,18 @@ test("English and French have the same texts, with the same slots", () => {
   }
 });
 
+test("French typography: no-break spaces before : ; ? ! and inside « »", () => {
+  for (const [key, value] of Object.entries(MESSAGES.fr)) {
+    for (const text of forms(value).flat()) {
+      assert.doesNotMatch(String(text), / [:;?!»]/, `${key}: a plain space before punctuation`);
+      assert.doesNotMatch(String(text), /« /, `${key}: a plain space after «`);
+    }
+  }
+});
+
 test("every key the code and the pages use exists", () => {
-  const namespaces = "api|common|lang|auth|nav|count|tree|files|col|type|search|sc|viewer|size|page|field|err";
+  const namespaces = "api|common|lang|auth|nav|count|tree|files|col|type|search|sc|viewer|size|page|field|err|" +
+    "sort|filter|sel|cmd|menu|status|a11y|date|group|kbd|help|share|zip|refresh";
   const keyLiteral = new RegExp(`["'\`]((?:${namespaces})\\.[\\w.]+)["'\`]`, "g");
   const sources = [
     ...readdirSync(path.join(ROOT, "server")).filter((f) => f.endsWith(".js")).map((f) => path.join(ROOT, "server", f)),
@@ -95,6 +105,18 @@ test("sizes and listing dates, the French way too", () => {
   assert.equal(formatDate("2026-04-01 08:30", "fr"), "1 avr. 2026 08:30");
   assert.equal(formatDate("04-01-26  08:30AM", "fr"), "04-01-26  08:30AM", "unknown formats are shown as they came");
   assert.equal(formatDate(undefined, "fr"), "");
+});
+
+test("times as Windows lists them, and in full for tooltips", () => {
+  const ms = new Date(2026, 3, 1, 14, 34, 5).getTime();
+  assert.equal(formatDateTime(ms, "minute"), "01/04/2026 14:34");
+  assert.equal(formatDateTime(ms, "second"), "01/04/2026 14:34:05");
+  assert.equal(formatDateTime(ms, "day"), "01/04/2026");
+  assert.equal(formatDateTime(new Date(2026, 0, 2, 0, 5).getTime()), "02/01/2026 00:05", "24-hour, padded");
+  assert.equal(formatLongDateTime(ms, "second", "fr"), "mercredi 1 avril 2026 à 14:34:05");
+  assert.equal(formatLongDateTime(ms, "minute", "fr"), "mercredi 1 avril 2026 à 14:34");
+  assert.equal(formatLongDateTime(ms, "day", "fr"), "mercredi 1 avril 2026");
+  assert.match(formatLongDateTime(ms, "minute", "en"), /^Wednesday,? 1 April 2026 at 14:34$/);
 });
 
 describe("the server answers errors in the reader's language", () => {
