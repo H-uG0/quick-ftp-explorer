@@ -16,6 +16,9 @@
 data/
 .env
 
+# Local-only secrets, such as the VPS's SSH access (deploy/vps.local.env).
+*.local.env
+
 # Dependencies and dist artifacts.
 node_modules/
 dist/
