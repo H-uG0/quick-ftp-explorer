@@ -85,7 +85,7 @@ async function loadShortcuts() {
   tree.setShortcuts(shortcuts);
   emptyHint.textContent = t(isAdmin() ? "tree.emptyAdmin" : "tree.emptyUser");
   emptyHint.hidden = shortcuts.length > 0;
-  statusInfo.textContent = tn("count.shortcuts", shortcuts.length);
+  statusInfo.textContent = tn("count.sites", shortcuts.length);
   if (searching && !current) restartSearch();   // the sites searched have changed
 }
 

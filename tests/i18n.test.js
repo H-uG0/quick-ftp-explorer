@@ -73,7 +73,7 @@ test("slots, nested messages, numbers and plurals follow the language", () => {
   assert.equal(plural("en", "count.results", 1), "1 result");
   assert.equal(plural("fr", "count.results", 12345), "12 345 résultats");
   assert.equal(plural("en", "count.results", 12345), "12,345 results");
-  assert.equal(translate("de", "nav.shortcuts"), "Shortcuts", "unknown language: English");
+  assert.equal(translate("de", "nav.shortcuts"), "Sites", "unknown language: English");
   assert.equal(translate("fr", "no.such.key"), "no.such.key");
 });
 
