@@ -169,7 +169,10 @@ function filteredOutNode(all) {
   box.append(el("p", "", t("filter.none")));
   const clear = el("button", "btn-secondary btn-sm", t("filter.clear"));
   clear.type = "button";
-  clear.addEventListener("click", () => setFilters({ ...NO_FILTERS }));
+  clear.addEventListener("click", () => {
+    setFilters({ ...NO_FILTERS });
+    $("f-period").focus();
+  });
   box.append(clear);
   const newest = newestTime(all);
   if (newest) box.append(el("p", "muted", t("filter.newest", { date: formatDateTime(newest.ms, newest.precision === "second" ? "minute" : newest.precision) })));
@@ -199,7 +202,8 @@ const gridCallbacks = {
       renderView();
       return;
     }
-    const dir = sort.key === key ? (sort.dir === "asc" ? "desc" : "asc") : FIRST_DIR[key];
+    const shown = renderState?.effective ?? sort;   // what the header shows
+    const dir = shown.key === key ? (shown.dir === "asc" ? "desc" : "asc") : FIRST_DIR[key];
     setSort(sortId({ key, dir }));
   },
   middle(row) {
@@ -387,7 +391,7 @@ function updateChrome() {
     actions: {
       open: { enabled: picked.length === 1 || files.length >= 2 },
       download: downloadState(files),
-      link: { label: linkLabel(picked.length) },
+      link: { label: linkLabel(picked.length), enabled: picked.length > 0 || !!current },
     },
     counts: { shown: shownCount, total, search: mode === "search" },
   });
@@ -441,7 +445,7 @@ breadcrumb.addEventListener("click", (e) => {
   const a = e.target.closest("a.bc-link");
   if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
   e.preventDefault();
-  if (a.getAttribute("href") !== location.hash) history.pushState({}, "", a.getAttribute("href"));
+  if (a.getAttribute("href") !== location.hash) pushEntry(a.getAttribute("href"));
   followUrl();
 });
 
@@ -611,7 +615,7 @@ function followUrl() {
   if (!booted) return;
   const target = parseHash(location.hash);
   if (!target) {
-    if (current || searching) goHome({ push: false });
+    if (current) goHome({ push: false });
     return;
   }
   const sc = shortcuts.find((s) => s.id === target.id);
@@ -846,6 +850,10 @@ function openViewer(row, { push = true } = {}) {
       history.replaceState({ ...history.state, viewer: { key: shownRow.key } }, "", location.href);
     },
     onRequestClose: () => history.back(),
+    onClosed(last) {
+      if (history.state?.viewer) history.back();
+      if (last) selectAndFocus(last.key);
+    },
     copyLink: (shownRow) => copyLinks([shownRow]),
   });
 }
@@ -926,6 +934,9 @@ async function downloadSelection() {
   }
   try {
     const { url } = await busy(t("zip.preparing"), () => api.prepareZip(files[0].sc.id, files.map((r) => r.path), localStamp()));
+    // HEAD uses nothing up: it tells whether the archive can start now.
+    const check = await fetch(url, { method: "HEAD" });
+    if (!check.ok) throw new Error(check.status === 503 ? t("err.zipBusy") : t("api.failed", { status: String(check.status) }));
     follow(url, { download: true });
   } catch (err) {
     toast(t("zip.failed", { reason: err.message }));
@@ -1049,8 +1060,9 @@ function updateResultsHeader(view) {
       const all = el("button", "btn-secondary btn-sm", t("search.allSites"));
       all.type = "button";
       all.addEventListener("click", () => {
+        const query = searchInput.value;
         goHome();
-        searchInput.value = view.query;
+        searchInput.value = query;
         runSearch();
       });
       resultsHeader.append(all);
@@ -1336,8 +1348,10 @@ appEl.addEventListener("contextmenu", (e) => {
 /* ---- splitter: drag, click, or the arrow keys ---- */
 
 const DEFAULT_WIDTH = 280;
+let paneWidth = DEFAULT_WIDTH;
 function setPaneWidth(width, save = true) {
   const w = Math.max(180, Math.min(560, Math.round(width)));
+  paneWidth = w;
   leftPane.style.width = w + "px";
   splitter.setAttribute("aria-valuenow", String(w));
   if (save) prefs.set("leftPaneWidth", w);
@@ -1359,7 +1373,7 @@ splitter.addEventListener("pointermove", (e) => {
 splitter.addEventListener("pointerup", (e) => {
   splitter.releasePointerCapture(e.pointerId);
   splitter.classList.remove("dragging");
-  const width = leftPane.offsetWidth;
+  const width = paneWidth;
   // A click without moving steps through three widths: resizing without dragging.
   if (drag && !drag.moved) {
     const steps = [220, 280, 400];
@@ -1370,7 +1384,7 @@ splitter.addEventListener("pointerup", (e) => {
   drag = null;
 });
 splitter.addEventListener("keydown", (e) => {
-  const width = leftPane.offsetWidth;
+  const width = paneWidth;
   const step = e.shiftKey ? 64 : 16;
   const keys = { ArrowLeft: width - step, ArrowRight: width + step, Home: 180, End: 560, Enter: DEFAULT_WIDTH };
   if (!(e.key in keys)) return;
@@ -1381,7 +1395,7 @@ splitter.addEventListener("keydown", (e) => {
 /* ---- narrow screens: the sites pane as a drawer ---- */
 
 const scrim = $("scrim");
-function setDrawer(open) {
+function setDrawer(open, { refocus = false } = {}) {
   if (appEl.classList.contains("drawer-open") === open) return;
   appEl.classList.toggle("drawer-open", open);
   menuBtn.setAttribute("aria-expanded", String(open));
@@ -1389,18 +1403,18 @@ function setDrawer(open) {
   mainEl.inert = open && narrow.matches;
   statusBar.inert = open && narrow.matches;
   if (open) {
-    layers.push("drawer", () => setDrawer(false));
+    layers.push("drawer", () => setDrawer(false, { refocus: true }));
     tree.focus();
   } else {
     layers.remove("drawer");
-    if (leftPane.contains(document.activeElement)) menuBtn.focus();
+    if (refocus || leftPane.contains(document.activeElement) || document.activeElement === document.body) menuBtn.focus();
   }
 }
 menuBtn.addEventListener("click", (e) => {
   e.stopPropagation();
   setDrawer(!appEl.classList.contains("drawer-open"));
 });
-scrim.addEventListener("click", () => setDrawer(false));
+scrim.addEventListener("click", () => setDrawer(false, { refocus: true }));
 
 // Phones keep the account controls at the foot of the drawer: the same
 // nodes, so the sign-out form keeps working.
@@ -1496,8 +1510,17 @@ f.custom.addEventListener("input", updatePreview);
 f.password.addEventListener("input", () => {
   passwordTouched = !editing ? f.password.value.length > 0 : true;
 });
+// Only a click that starts and ends on the backdrop closes the form: not one
+// in its padding, nor the end of a text selection dragged out of a field.
+const outsideModal = (e) => {
+  const r = modal.getBoundingClientRect();
+  return e.target === modal && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom);
+};
+let downOnBackdrop = false;
+modal.addEventListener("pointerdown", (e) => { downOnBackdrop = outsideModal(e); });
 modal.addEventListener("click", (e) => {
-  if (e.target === modal) closeModal();
+  if (downOnBackdrop && outsideModal(e)) closeModal();
+  downOnBackdrop = false;
 });
 $("sc-cancel").addEventListener("click", closeModal);
 
@@ -1566,6 +1589,10 @@ try {
   await loadShortcuts();
   searchInput.placeholder = searchPlaceholder();
   if (history.state?.idx === undefined) history.replaceState({ ...history.state, idx: 0 }, "", location.href);
+  if (history.state?.viewer) {
+    const { viewer: _gone, ...rest } = history.state;
+    history.replaceState(rest, "", location.href);
+  }
   restoring = history.state?.view ?? null;   // F5: the same view again
   booted = true;
   if (parseHash(location.hash)) followUrl();

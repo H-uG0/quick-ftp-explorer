@@ -585,34 +585,39 @@ a { color: var(--link); }
 .placeholder-error button { margin-left: 8px; }
 .filtered-out p { margin: 0 0 12px; }
 
-.file-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-.file-table th,
-.file-table td {
-  padding: 6px 12px;
-  text-align: left;
+/* The list: an ARIA grid of divs, each row a CSS grid sharing one column
+   template, so rows off screen skip layout (content-visibility): a site can
+   hold thousands of clips. The template follows the columns shown. */
+.file-table { --cols: minmax(0, 1fr) 165px 90px; min-width: 100%; }
+.file-table.c-camera { --cols: minmax(0, 1fr) 150px 165px 90px; }
+.file-table.with-checks { --cols: 34px minmax(0, 1fr) 165px 90px; }
+.file-table.with-checks.c-camera { --cols: 34px minmax(0, 1fr) 150px 165px 90px; }
+.file-table.c-home { --cols: minmax(0, 1fr); }
+
+.grid-row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  align-items: center;
   border-bottom: 1px solid var(--border-soft);
+}
+.grid-cell {
+  min-width: 0;
+  padding: 6px 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.file-table thead th {
-  height: var(--head-h);   /* a table cell's height is a minimum */
+.grid-head { position: sticky; top: 0; z-index: 2; }
+.head-row {
+  min-height: var(--head-h);
   box-sizing: border-box;
-  padding-top: 0;
-  padding-bottom: 0;
   background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-soft);
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  border-bottom: 1px solid var(--border);
 }
+.head-row .grid-cell { padding-top: 0; padding-bottom: 0; }
 .sort-button {
   display: inline-flex;
   align-items: center;
@@ -628,30 +633,34 @@ a { color: var(--link); }
 }
 .sort-button:hover { background: none; color: var(--text); text-decoration: underline; }
 .sort-button:active { background: none; }
-th[aria-sort] .sort-button { color: var(--text); }
+[aria-sort] .sort-button { color: var(--text); }
 .col-size .sort-button { justify-content: flex-end; }
 
-.file-table .col-check { width: 24px; padding: 0 0 0 10px; text-align: center; text-overflow: clip; }
-.file-table .col-camera { width: 150px; }
-.file-table .col-date { width: 165px; }
-.file-table .col-size { width: 90px; text-align: right; }
-.file-table .col-size,
-.file-table .col-date { font-variant-numeric: tabular-nums; }
-.file-table td.col-camera,
-.file-table td.col-date,
-.file-table td.col-size { color: var(--text-soft); }
-.file-table td.col-date.muted { color: var(--muted); font-style: italic; }
-.file-table thead .col-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
+.grid-cell.col-check { padding: 0 0 0 10px; text-align: center; text-overflow: clip; }
+.grid-cell.col-size { text-align: right; }
+.grid-cell.col-size,
+.grid-cell.col-date { font-variant-numeric: tabular-nums; }
+.entry-row .col-camera,
+.entry-row .col-date,
+.entry-row .col-size { color: var(--text-soft); }
+.entry-row .col-date.muted { color: var(--muted); font-style: italic; }
+.head-row .col-check input { width: 16px; height: 16px; margin: 0; vertical-align: middle; accent-color: var(--primary); }
 
-.file-table tbody tr { cursor: default; user-select: none; }
-.file-table tbody tr:hover { background: var(--hover); }
-.file-table tbody tr.selected { background: var(--selected); box-shadow: inset 3px 0 0 var(--primary); }
-.file-table tbody tr.selected:hover { background: var(--selected-hover); }
-.file-table tbody tr:focus { outline: none; }
-.file-table tbody tr:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.entry-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36px;
+  cursor: default;
+  user-select: none;
+}
+.entry-row:hover { background: var(--hover); }
+.entry-row.selected { background: var(--selected); box-shadow: inset 3px 0 0 var(--primary); }
+.entry-row.selected:hover { background: var(--selected-hover); }
+.entry-row:focus { outline: none; }
+.entry-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
 /* Windows 11's item check boxes: on hover, on the focused row, on selected
-   rows, and on every row once anything is selected. */
+   rows, and on every row once anything is selected. The tick is a
+   background, so selecting a row never changes the layout. */
 .check {
   display: inline-block;
   width: 14px;
@@ -660,43 +669,33 @@ th[aria-sort] .sort-button { color: var(--text); }
   vertical-align: -2px;
   border: 1.5px solid var(--border-input);
   border-radius: 3px;
-  background: var(--surface);
+  background: var(--surface) center / 10px no-repeat;
   visibility: hidden;
 }
-.file-table tbody tr:hover .check,
-.file-table tbody tr:focus-visible .check,
-.file-table tbody tr.selected .check,
+.entry-row:hover .check,
+.entry-row:focus-visible .check,
+.entry-row.selected .check,
 .file-table.has-selection .check { visibility: visible; }
-.file-table tbody tr.selected .check {
+.entry-row.selected .check {
   border-color: var(--primary);
-  background: var(--primary);
-  position: relative;
-}
-.file-table tbody tr.selected .check::after {
-  content: "";
-  position: absolute;
-  left: 3.5px;
-  top: 0.5px;
-  width: 4px;
-  height: 8px;
-  border: solid var(--on-ink);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
+  background-color: var(--primary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3.5 8.25 3 3 6-6.5' fill='none' stroke='%23f4f6f9' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* Day headings, under the column header while their day scrolls by. */
-.file-table .group-row th {
+.group-row {
+  display: block;
   position: sticky;
   top: var(--head-h);
   z-index: 1;
-  height: 30px;
-  box-sizing: border-box;
-  padding: 0 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.group-cell {
+  padding: 5px 12px;
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text);
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
 }
 .file-list.grouped { scroll-padding-top: calc(var(--head-h) + 30px); }
 
@@ -1030,6 +1029,7 @@ dialog::backdrop { background: oklch(0.2 0.03 245 / 0.45); }
 .sheet .field-inline label { flex: 0 0 100%; font-weight: 600; }
 .sheet select, .sheet input[type="datetime-local"] {
   width: 100%;
+  box-sizing: border-box;
   min-height: 44px;
   font: inherit;
   padding: 6px 8px;
@@ -1268,6 +1268,7 @@ audio.viewer-media {
   #app.drawer-open .pane-left {
     transform: none;
     visibility: visible;
+    transition: transform 200ms var(--ease-out), visibility 0s;   /* focusable at once */
   }
   .scrim {
     display: block;
@@ -1302,9 +1303,7 @@ audio.viewer-media {
   #app.selecting .select-mode { background: var(--selected); border-color: var(--primary); }
 
   /* Selection mode: a box on every file, and the bar at the bottom. */
-  .file-table.selecting td.col-check { display: table-cell; width: 44px; padding: 0 0 0 10px; }
-  .file-table.selecting .check { visibility: visible; width: 22px; height: 22px; }
-  .file-table.selecting tbody tr.selected .check::after { left: 6.5px; top: 2px; width: 6px; height: 11px; }
+  .file-table.selecting .check { visibility: visible; width: 22px; height: 22px; background-size: 15px; }
   .selection-bar {
     display: flex;
     align-items: center;
@@ -1321,10 +1320,13 @@ audio.viewer-media {
   .commandbar .btn-secondary { min-height: 40px; }
 
   /* Rows: the name, never cut, then one muted line. */
-  .file-table thead { display: none; }
-  .file-table { table-layout: auto; }
-  .file-table td:not(.col-name) { display: none; }
-  .file-table td.col-name {
+  .grid-head { display: none; }
+  #file-list .file-table { --cols: minmax(0, 1fr); }
+  #file-list .file-table.selecting { --cols: 44px minmax(0, 1fr); }
+  .entry-row .grid-cell:not(.col-name) { display: none; }
+  .file-table.selecting .entry-row .col-check { display: block; }
+  .entry-row { contain-intrinsic-size: auto 60px; }
+  .entry-row .grid-cell.col-name {
     min-height: 56px;
     padding: 9px 12px;
     white-space: normal;
@@ -1340,7 +1342,8 @@ audio.viewer-media {
   }
   .result-location { white-space: normal; }
   .file-list, .file-list.grouped { scroll-padding-top: 30px; }
-  .file-table .group-row th { top: 0; height: 36px; }
+  .group-row { top: 0; }
+  .group-cell { padding: 8px 12px; }
 
   .statusbar { display: none; }
   .toast { bottom: 16px; }
@@ -1376,15 +1379,15 @@ audio.viewer-media {
 
 /* Windows contrast themes: the system's colours, and shapes that still show. */
 @media (forced-colors: active) {
-  .file-table tbody tr.selected { background: Highlight; color: HighlightText; forced-color-adjust: none; }
-  .file-table tbody tr.selected td { color: HighlightText; }
+  .entry-row.selected { background: Highlight; color: HighlightText; forced-color-adjust: none; }
+  .entry-row.selected .grid-cell { color: HighlightText; }
   .tree-row.active { outline: 2px solid Highlight; outline-offset: -2px; }
   .tree-node:focus-visible > .tree-row,
-  .file-table tbody tr:focus-visible,
+  .entry-row:focus-visible,
   :focus-visible { outline: 2px solid Highlight; }
   mark { background: Mark; color: MarkText; forced-color-adjust: none; }
   .check { border-color: CanvasText; }
-  .file-table tbody tr.selected .check { background: Highlight; border-color: HighlightText; }
+  .entry-row.selected .check { background-color: Highlight; border-color: HighlightText; }
   .commandbar .filter-active, .sheet .filter-active, .chip { border: 2px solid CanvasText; }
   .splitter::after { background: CanvasText; }
 }

@@ -28,7 +28,7 @@ const KIND_LABELS = { video: "filter.kindVideo", image: "filter.kindImage", othe
 
 let hooks = null, filters = { ...NO_FILTERS }, last = null;
 let bar, openBtn, downloadBtn, downloadLabel, linkBtn, sortSelect, group, period, aroundBox, at, margin, rangeBox, from, to;
-let cameraBox, camera, kindBox, kind, clearBtn, filterBtn, summary, sheet, sheetBody, sheetShow, home;
+let cameraBox, camera, kindBox, kind, clearBtn, filterBtn, summary, sheet, sheetBody, sheetShow;
 
 const pad2 = (n) => String(n).padStart(2, "0");
 // A datetime-local field's value: "2026-11-01T16:20", this browser's time.
@@ -100,9 +100,16 @@ function showPeriodFields() {
 function clearFilters() {
   filters = { ...NO_FILTERS };
   hooks.onFilters({ ...filters });
+  if (!sheet.open) period.focus();   // the button that had it is gone
 }
 
 /* ---- the phone's filter sheet ---- */
+
+// A click on a dialog's backdrop, not in its own padding.
+function outside(dialog, e) {
+  const r = dialog.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+}
 
 function openSheet() {
   sheetBody.append(group);
@@ -134,6 +141,7 @@ function update(view) {
   downloadLabel.textContent = dl.count > 1 ? t("cmd.downloadCount", { n: dl.count }) : t("cmd.download");
   downloadBtn.title = dl.title || "";
   linkBtn.querySelector(".btn-label").textContent = view.actions.link.label;
+  linkBtn.disabled = !view.actions.link.enabled;
 
   // Trier: the Caméra orders only when the column shows.
   const sorts = SORTS.filter((s) => s.key !== "camera" || view.columns.includes("camera"));
@@ -176,7 +184,7 @@ function update(view) {
       chip.setAttribute("aria-label", t("filter.remove", { value: label }));
       chip.append(document.createTextNode(label), icon("close"));
       chip.addEventListener("click", () => {
-        filters = { ...filters, [a.name]: a.name === "period" ? "" : "" };
+        filters = { ...filters, [a.name]: "" };
         hooks.onFilters({ ...filters });
       });
       return chip;
@@ -217,7 +225,6 @@ function init(options) {
   sheet = $("filter-sheet");
   sheetBody = sheet.querySelector(".sheet-body");
   sheetShow = $("sheet-show");
-  home = bar;
 
   openBtn.prepend(icon("open"));
   downloadBtn.prepend(icon("download"));
@@ -236,10 +243,9 @@ function init(options) {
   sheetShow.addEventListener("click", closeSheet);
   sheet.addEventListener("close", onSheetClose);
   sheet.addEventListener("click", (e) => {
-    if (e.target === sheet) closeSheet();   // a tap above the sheet
+    if (e.target === sheet && outside(sheet, e)) closeSheet();   // a tap above the sheet
   });
   window.matchMedia("(max-width: 700px)").addEventListener("change", closeSheet);
-  void home;
 }
 
 export const toolbar = { init, update, closeSheet, filterLabel };

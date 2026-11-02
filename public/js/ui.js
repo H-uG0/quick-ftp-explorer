@@ -376,14 +376,28 @@ export const tree = {
     markActiveSite(HOME);
   },
 
-  // A quiet refresh redraws the tree only if the subfolders changed, so it
-  // never takes the focus away from it.
+  // The rows already loaded stay readable (cached()) while the new listing
+  // comes, and after it fails. A quiet refresh redraws the tree only if the
+  // subfolders changed, so it never takes the focus away from it.
   async refresh(sc, path, { quiet = false } = {}) {
     const key = keyFor(sc.id, path);
-    const before = state.listings.get(key)?.entries;
-    state.listings.delete(key);
+    const old = state.listings.get(key);
+    const before = old?.entries ?? null;
+    const item = { entries: before, error: null, loadedAt: old?.loadedAt ?? null };
+    item.promise = api.listDir(sc.id, path).then(
+      (entries) => {
+        item.entries = entries;
+        item.loadedAt = Date.now();
+        return entries;
+      },
+      (err) => {
+        if (!before) item.error = err;   // nothing to fall back on: retried next time
+        throw err;
+      },
+    );
+    state.listings.set(key, item);
     if (!quiet) renderAll();
-    const entries = await listing(sc, path);
+    const entries = await item.promise;
     if (!quiet || !before || folderNames(before) !== folderNames(entries)) renderAll();
     return entries;
   },

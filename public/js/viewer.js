@@ -8,6 +8,7 @@
  *     onShow(item, i)   each time a file is shown
  *     onRequestClose()  Esc, Fermer or a click beside the media: the app closes
  *                       through history, so the browser's Back button does too
+ *     onClosed(item)    the browser closed it by itself
  *     copyLink(item)    "Copier le lien" in the header, when given
  *   viewer.close()      close now
  *   viewer.isOpen(), viewer.current()
@@ -35,6 +36,7 @@ import { announce } from "./keys.js";
 let dialog = null, captionEl = null, subtitleEl = null, positionEl = null, prevBtn = null, nextBtn = null;
 let downloadLink = null, linkBtn = null, stage = null, chain = null, chainBox = null;
 let list = [], at = 0, options = null, openedAt = 0, chainTimer = 0;
+let closing = false, byApp = false;   // a close was asked for; the app closes it
 
 function button(className, iconName, label, title, action) {
   const b = el("button", `btn-secondary ${className}`);
@@ -83,6 +85,17 @@ function ensureDialog() {
     e.preventDefault();
     requestClose();
   });
+  // The browser may still close it (a second Esc in a row): tidy up, and
+  // let the app catch up with its history.
+  dialog.addEventListener("close", () => {
+    const last = list[at];
+    cancelChain();
+    stopMedia();
+    stage.replaceChildren();
+    const native = !byApp;
+    byApp = closing = false;
+    if (native) options?.onClosed?.(last);
+  });
   dialog.addEventListener("keydown", onKey);
   dialog.addEventListener("keydown", cancelChain, true);
   dialog.addEventListener("pointerdown", cancelChain, true);
@@ -102,7 +115,10 @@ function ensureDialog() {
 }
 
 function requestClose() {
-  if (isOpen()) options?.onRequestClose ? options.onRequestClose() : close();
+  if (!isOpen() || closing) return;   // Esc twice must not go back twice
+  closing = true;
+  if (options?.onRequestClose) options.onRequestClose();
+  else close();
 }
 
 function onKey(e) {
@@ -164,6 +180,7 @@ function open(items, index, opts) {
   ensureDialog();
   list = items;
   options = opts;
+  closing = false;
   linkBtn.hidden = !opts.copyLink;
   openedAt = performance.now();
   if (!dialog.open) dialog.showModal();
@@ -182,10 +199,8 @@ function stopMedia() {
 
 function close() {
   if (!isOpen()) return;
-  cancelChain();
-  stopMedia();
-  stage.replaceChildren();
-  dialog.close();
+  byApp = true;
+  dialog.close();   // the "close" event stops the media
 }
 
 const isOpen = () => !!dialog?.open;

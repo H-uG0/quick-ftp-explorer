@@ -1,6 +1,9 @@
 /*
  * grid.js - the right pane's list: a folder, search results or every site,
- * as one <table role=grid> that behaves like File Explorer's Details view.
+ * as one ARIA grid that behaves like File Explorer's Details view. It is
+ * built of divs, each row a CSS grid sharing the column template, so that
+ * rows off screen skip layout (content-visibility): a site holds thousands
+ * of clips.
  *
  *   grid.render(container, model, callbacks)   draw the rows; focus and scroll are kept by key
  *   grid.update(selection)                     show a selection (classes and aria-selected only)
@@ -18,7 +21,8 @@
  * opens. Touch: a tap opens. Keyboard: one Tab stop, the arrows, Home/End,
  * Page Up/Down (Shift extends, Ctrl only moves the focus), Space, Ctrl+A,
  * Enter, Esc. The selection itself lives in the app (selection.js), so
- * renders and sorts keep it. Names reach the page as text only.
+ * renders and sorts keep it. Date tooltips are written when a row is
+ * pointed at or focused. Names reach the page as text only.
  */
 
 import * as sel from "./selection.js";
@@ -82,19 +86,30 @@ export function dateTitle(row) {
 
 const sizeText = (row) => (row.isDir ? "" : formatSize(row.size, language()));
 
+const cell = (className, text) => {
+  const node = el("div", `grid-cell ${className}`, text);
+  node.setAttribute("role", "gridcell");
+  return node;
+};
+
 function buildRow(row) {
-  const tr = el("tr", `entry-row ${row.kind}`);
+  const tr = el("div", `grid-row entry-row ${row.kind}`);
+  tr.setAttribute("role", "row");
   tr.dataset.key = row.key;
   tr.tabIndex = -1;
-  tr.setAttribute("aria-selected", "false");
+  tr.setAttribute("aria-selected", latest.selected.has(row.key) ? "true" : "false");
+  if (latest.selected.has(row.key)) {
+    tr.classList.add("selected");
+    shown.add(row.key);
+  }
   const file = !row.isDir;
 
   if (model.checkboxes) {
-    const check = el("td", "col-check");
+    const check = cell("col-check");
     if (file) check.append(el("span", "check"));
     tr.append(check);
   }
-  const name = el("td", "col-name");
+  const name = cell("col-name");
   name.title = model.places.has(row.key) ? `${row.name}\n${model.places.get(row.key)}` : row.name;
   const iconEl = el("span", "file-icon");
   iconEl.append(icon(row.kind));
@@ -112,14 +127,12 @@ function buildRow(row) {
 
   for (const column of model.columns) {
     if (column === "name") continue;
-    const td = el("td", `col-${column}`);
+    const td = cell(`col-${column}`);
     if (column === "camera") td.textContent = row.camera;
     else if (column === "size") td.textContent = sizeText(row);
     else if (column === "date" && row.kind !== "site") {
       td.textContent = dateText(row);
       if (row.time === null) td.classList.add("muted");
-      const title = dateTitle(row);
-      if (title) td.title = title;
     }
     tr.append(td);
   }
@@ -127,10 +140,18 @@ function buildRow(row) {
 }
 
 function buildHead() {
-  const head = el("thead");
-  const tr = el("tr");
+  const head = el("div", "grid-head");
+  head.setAttribute("role", "rowgroup");
+  const tr = el("div", "grid-row head-row");
+  tr.setAttribute("role", "row");
+  const th = (className) => {
+    const node = el("div", `grid-cell ${className}`);
+    node.setAttribute("role", "columnheader");
+    return node;
+  };
   if (model.checkboxes) {
-    const th = el("th", "col-check");
+    const th = el("div", "grid-cell col-check");
+    th.setAttribute("role", "columnheader");
     headCheck = el("input");
     headCheck.type = "checkbox";
     headCheck.setAttribute("aria-label", t("sel.selectAll"));
@@ -141,18 +162,18 @@ function buildHead() {
     headCheck = null;
   }
   for (const column of model.columns) {
-    const th = el("th", `col-${column}`);
+    const header = th(`col-${column}`);
     const label = t(COLUMN_LABELS[column]);
     const sorted = model.sort.key === column;
-    if (sorted) th.setAttribute("aria-sort", model.sort.dir === "asc" ? "ascending" : "descending");
+    if (sorted) header.setAttribute("aria-sort", model.sort.dir === "asc" ? "ascending" : "descending");
     const button = el("button", "sort-button");
     button.type = "button";
     button.dataset.sort = column;
     button.title = t("sort.by", { column: label.toLowerCase() });
     button.append(el("span", "", label));
     if (sorted) button.append(icon(model.sort.dir === "asc" ? "sort-up" : "sort-down"));
-    th.append(button);
-    tr.append(th);
+    header.append(button);
+    tr.append(header);
   }
   head.append(tr);
   return head;
@@ -163,6 +184,11 @@ function buildHead() {
 function render(target, nextModel, nextCallbacks) {
   const sameView = model && container === target && model.id === nextModel.id;
   const hadFocus = !!tableEl?.contains(document.activeElement);
+  // A header control keeps the focus (Enter on "Nom" sorts again, not opens a row).
+  const active = document.activeElement;
+  const headFocus = hadFocus && active?.closest?.(".grid-head")
+    ? (active.dataset?.sort ? `button[data-sort="${active.dataset.sort}"]` : "input")
+    : null;
   const scrollTop = sameView ? target.scrollTop : 0;
   container = target;
   model = { checkboxes: false, marks: new Map(), places: new Map(), empty: null, ...nextModel };
@@ -171,30 +197,37 @@ function render(target, nextModel, nextCallbacks) {
   byKey = new Map(model.rows.map((r) => [r.key, r]));
   rowEls = new Map();
   shown = new Set();
+  latest = callbacks.selection();
 
   if (!model.rows.length) {
     tableEl = body = headCheck = null;
     container.replaceChildren(...[model.empty].flat().filter(Boolean));
     return;
   }
-  tableEl = el("table", "file-table");
+  tableEl = el("div", "file-table");
   tableEl.setAttribute("role", "grid");
   tableEl.setAttribute("aria-multiselectable", "true");
   tableEl.setAttribute("aria-label", model.label);
+  tableEl.setAttribute("aria-colcount", String(model.columns.length + (model.checkboxes ? 1 : 0)));
+  // The column template comes from these classes (styles.css).
   tableEl.classList.toggle("with-checks", model.checkboxes);
+  tableEl.classList.toggle("c-camera", model.columns.includes("camera"));
+  tableEl.classList.toggle("c-home", model.mode === "home");
   tableEl.classList.toggle("selecting", !!model.selecting);
   tableEl.append(buildHead());
-  // One <tbody> per day heading; the headings take no focus, and the keys
+  // One row group per day heading; the headings take no focus, and the keys
   // and range selection go by `order`, which skips them.
   const span = model.columns.length + (model.checkboxes ? 1 : 0);
   const bodies = document.createDocumentFragment();
   for (const group of model.groups ?? [{ label: null, rows: model.rows }]) {
-    const tbody = el("tbody");
+    const tbody = el("div", "grid-body");
+    tbody.setAttribute("role", "rowgroup");
     if (group.label) {
-      const heading = el("tr", "group-row");
-      const th = el("th", "", group.label);
-      th.scope = "rowgroup";
-      th.colSpan = span;
+      const heading = el("div", "grid-row group-row");
+      heading.setAttribute("role", "row");
+      const th = el("div", "grid-cell group-cell", group.label);
+      th.setAttribute("role", "rowheader");
+      th.setAttribute("aria-colspan", String(span));
       heading.append(th);
       tbody.append(heading);
     }
@@ -216,15 +249,19 @@ function render(target, nextModel, nextCallbacks) {
   update(state);
   const focusKey = byKey.has(state.focus) ? state.focus : order[0];
   setTabStop(focusKey);
-  if (hadFocus) rowEls.get(focusKey)?.focus({ preventScroll: true });
+  if (headFocus) tableEl.querySelector(`.grid-head ${headFocus}`)?.focus({ preventScroll: true });
+  else if (hadFocus) rowEls.get(focusKey)?.focus({ preventScroll: true });
 }
 
 function setTabStop(key) {
-  body?.querySelector('tr[tabindex="0"]')?.setAttribute("tabindex", "-1");
+  body?.querySelector('.entry-row[tabindex="0"]')?.setAttribute("tabindex", "-1");
   rowEls.get(key)?.setAttribute("tabindex", "0");
 }
 
+let latest = sel.EMPTY;   // the selection last shown
+
 function update(state) {
+  latest = state;
   if (!body) return;
   const next = state.selected;
   for (const key of shown) {
@@ -264,7 +301,7 @@ function focus(key) {
 /* ---- events ---- */
 
 function rowFrom(target) {
-  const tr = target instanceof Element ? target.closest("tr.entry-row") : null;
+  const tr = target instanceof Element ? target.closest(".entry-row") : null;
   return tr && body?.contains(tr) ? byKey.get(tr.dataset.key) ?? null : null;
 }
 
@@ -282,7 +319,7 @@ function openRow(row) {
 function pageSize() {
   const first = rowEls.get(order[0]);
   const height = first?.offsetHeight || 32;
-  return Math.max(1, Math.floor((container.clientHeight - (tableEl.tHead?.offsetHeight ?? 0)) / height) - 1);
+  return Math.max(1, Math.floor((container.clientHeight - (tableEl.firstElementChild?.offsetHeight ?? 0)) / height) - 1);
 }
 
 function onKeydown(e) {
@@ -334,7 +371,7 @@ function onKeydown(e) {
 }
 
 function onClick(e) {
-  if (e.target.closest("thead")) {
+  if (e.target.closest(".grid-head")) {
     const button = e.target.closest("button[data-sort]");
     if (button) callbacks.sort(button.dataset.sort);
     if (e.target === headCheck) {
@@ -346,6 +383,10 @@ function onClick(e) {
   const row = rowFrom(e.target);
   if (!row) return;
   const state = callbacks.selection();
+  if (e.target.closest(".col-check") && !row.isDir) {
+    select(sel.toggle(state, row.key));   // a check box ticks, whatever the pointer
+    return;
+  }
   if (lastPointer === "touch" && !model.selecting) {
     // One tap opens; the second tap of a double tap, or a tap right after
     // something opened, would land on what just appeared.
@@ -354,7 +395,7 @@ function onClick(e) {
     openRow(row);
     return;
   }
-  if (model.selecting || (e.target.closest(".col-check") && !row.isDir)) {
+  if (model.selecting) {
     select(sel.toggle(state, row.key));
     return;
   }
@@ -387,13 +428,27 @@ function wire() {
   // Focus that arrives by Tab lands on the row the app last focused.
   tableEl.addEventListener("focusin", (e) => {
     const row = rowFrom(e.target);
-    if (row) setTabStop(row.key);
+    if (row) {
+      setTabStop(row.key);
+      fillTitle(e.target.closest(".entry-row"));
+    }
   });
+  tableEl.addEventListener("pointerover", (e) => fillTitle(e.target.closest?.(".entry-row")));
+}
+
+// The date's long form, written when a row is pointed at or focused:
+// formatting thousands of them up front would delay the list.
+function fillTitle(tr) {
+  const td = tr?.querySelector(".col-date");
+  if (!td || td.title || td.dataset.titled) return;
+  td.dataset.titled = "1";
+  const title = dateTitle(byKey.get(tr.dataset.key));
+  if (title) td.title = title;
 }
 
 // A click below the rows clears the selection, as in Explorer.
 function onBackground(e) {
-  if (!tableEl || e.target.closest?.("tr, button, a, input")) return;
+  if (!tableEl || e.target.closest?.(".entry-row, button, a, input")) return;
   const state = callbacks?.selection();
   if (state?.selected.size) callbacks.select(sel.clear(state));
 }
@@ -415,7 +470,7 @@ export const grid = {
   row: (key) => byKey.get(key) ?? null,
   table: () => tableEl,
   focusedRow() {
-    const tr = body?.querySelector('tr[tabindex="0"]');
+    const tr = body?.querySelector('.entry-row[tabindex="0"]');
     return tr ? byKey.get(tr.dataset.key) ?? null : null;
   },
   isSelecting: () => !!model?.selecting,

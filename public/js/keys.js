@@ -76,13 +76,14 @@ document.addEventListener("keydown", (e) => {
     // An open dialog handles its own Esc; layers under it wait.
     const dialog = document.querySelector("dialog[open]");
     const top = stack.at(-1);
-    if (top && !(dialog && !dialog.contains(e.target))) {
+    if (top && !dialog) {
       e.preventDefault();
       stack.pop();
       top.close();
     }
     return;
   }
+  if (layers.has("menu")) return;
   const name = shortcutFor(e);
   if (name && fire(name, e)) e.preventDefault();
 });

@@ -652,10 +652,17 @@ export function pickLanguage(cookie, accept) {
   return ranked[0]?.lang ?? "en";
 }
 
+const numberFormats = new Map();
 export function formatSize(bytes, lang = "en") {
   const n = Number(bytes) || 0;
   const [b, kb, mb, gb] = MESSAGES[valid(lang)]["size.units"];
-  const fixed = (value, digits) => value.toLocaleString(LOCALES[valid(lang)], { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const fixed = (value, digits) => {
+    const key = `${valid(lang)}:${digits}`;
+    if (!numberFormats.has(key)) {
+      numberFormats.set(key, new Intl.NumberFormat(LOCALES[valid(lang)], { minimumFractionDigits: digits, maximumFractionDigits: digits }));
+    }
+    return numberFormats.get(key).format(value);
+  };
   if (n < 1024) return `${n} ${b}`;
   if (n < 1024 ** 2) return `${fixed(n / 1024, 1)} ${kb}`;
   if (n < 1024 ** 3) return `${fixed(n / 1024 ** 2, 1)} ${mb}`;
