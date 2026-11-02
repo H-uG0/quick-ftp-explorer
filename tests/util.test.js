@@ -86,6 +86,16 @@ test("folder links: formatHash and parseHash round-trip, accents and spaces incl
   assert.deepEqual(parseHash("#/main-nvr//Images//"), { id: "main-nvr", path: "/Images" });
 });
 
+test("clip links: ?open=<name> after the folder", () => {
+  const hash = formatHash("main-nvr", "/Cameras", { open: "1234_Cam 1_202610300830.avi" });
+  assert.equal(hash, "#/main-nvr/Cameras?open=1234_Cam%201_202610300830.avi");
+  assert.deepEqual(parseHash(hash), { id: "main-nvr", path: "/Cameras", open: "1234_Cam 1_202610300830.avi" });
+  assert.deepEqual(parseHash("#/main-nvr/?open=a%3Fb.avi"), { id: "main-nvr", path: "/", open: "a?b.avi" });
+  assert.deepEqual(parseHash("#/main-nvr/Images%3F/x"), { id: "main-nvr", path: "/Images?/x" }, "an encoded ? stays in the path");
+  assert.deepEqual(parseHash("#/main-nvr/Cameras?open=..%2Fsecret"), { id: "main-nvr", path: "/Cameras" }, "only a name");
+  assert.deepEqual(parseHash("#/main-nvr/Cameras?other=1"), { id: "main-nvr", path: "/Cameras" });
+});
+
 test("parseHash refuses anything that isn't a folder link", () => {
   for (const bad of ["", "#", "#/", "main-nvr", "#main-nvr/x", "#/%E0%A4%A", "#/x/../etc", "#/x/a/./b"]) {
     assert.equal(parseHash(bad), null, bad);

@@ -14,8 +14,8 @@
  *   matchName(name, terms)          the same, from a plain name
  *   splitLabel(label, username)     the custom part of "<username> <custom>"
  *   composeLabel(username, custom)  the reverse
- *   formatHash(id, path)            "#/<shortcut id>/<folder>/<folder>", each part URL-encoded
- *   parseHash(hash)                 the reverse: { id, path }, or null
+ *   formatHash(id, path, { open })  "#/<shortcut id>/<folder>/<folder>[?open=<file>]", each part URL-encoded
+ *   parseHash(hash)                 the reverse: { id, path[, open] }, or null
  */
 
 // Natural order: "clip 2" sorts before "clip 10", as people expect.
@@ -136,19 +136,27 @@ export function composeLabel(username, custom) {
 }
 
 // The URL fragment names the open folder, so links can be bookmarked or
-// shared and the browser's Back / Forward buttons move between folders.
-export function formatHash(id, path) {
+// shared and the browser's Back / Forward buttons move between folders. A
+// link to one clip adds "?open=<name>": segments are URL-encoded, so the
+// first literal "?" can only start that query.
+export function formatHash(id, path, { open } = {}) {
   const segments = String(path).split("/").filter(Boolean).map(encodeURIComponent);
-  return `#/${encodeURIComponent(id)}/${segments.join("/")}`;
+  const query = open ? `?open=${encodeURIComponent(open)}` : "";
+  return `#/${encodeURIComponent(id)}/${segments.join("/")}${query}`;
 }
 
 export function parseHash(hash) {
-  const [empty, id, ...segments] = String(hash ?? "").replace(/^#/, "").split("/");
+  const text = String(hash ?? "").replace(/^#/, "");
+  const at = text.indexOf("?");
+  const [empty, id, ...segments] = (at < 0 ? text : text.slice(0, at)).split("/");
   if (empty !== "" || !id) return null;
   try {
     const parts = segments.filter(Boolean).map(decodeURIComponent);
     if (parts.some((p) => p === "." || p === "..")) return null;
-    return { id: decodeURIComponent(id), path: "/" + parts.join("/") };
+    const target = { id: decodeURIComponent(id), path: "/" + parts.join("/") };
+    const open = at < 0 ? null : new URLSearchParams(text.slice(at + 1)).get("open");
+    if (open && !open.includes("/") && open !== "." && open !== "..") target.open = open;
+    return target;
   } catch {
     return null;   // malformed %-escapes
   }

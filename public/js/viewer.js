@@ -8,6 +8,8 @@
  *     onShow(item, i)   each time a file is shown
  *     onRequestClose()  Esc, Fermer or a click beside the media: the app closes
  *                       through history, so the browser's Back button does too
+ *     copyLink(item)    "Copier le lien" in the header, when given
+ *     autoplay()        true to play the next clip when one ends
  *   viewer.close()      close now
  *   viewer.isOpen(), viewer.current()
  *
@@ -28,7 +30,7 @@ import { t } from "./i18n.js";
 import { icon } from "./icons.js";
 
 let dialog = null, captionEl = null, subtitleEl = null, positionEl = null, prevBtn = null, nextBtn = null;
-let downloadLink = null, stage = null;
+let downloadLink = null, linkBtn = null, stage = null;
 let list = [], at = 0, options = null, openedAt = 0;
 
 function button(className, iconName, label, title, action) {
@@ -62,11 +64,12 @@ function ensureDialog() {
   downloadLink = el("a", "btn-secondary viewer-download");
   downloadLink.append(icon("download"), el("span", "btn-label", t("viewer.download")));
   downloadLink.setAttribute("download", "");
+  linkBtn = button("viewer-link", "link", t("share.copy"), "", () => options.copyLink?.(list[at]));
   const closeBtn = button("viewer-close", "close", t("viewer.close"), t("viewer.closeTip"), requestClose);
 
   stage = el("div", "viewer-body");
   stage.tabIndex = -1;
-  dialog.append(nav, caption, downloadLink, closeBtn, stage);
+  dialog.append(nav, caption, linkBtn, downloadLink, closeBtn, stage);
 
   dialog.addEventListener("cancel", (e) => {
     e.preventDefault();
@@ -143,6 +146,7 @@ function open(items, index, opts) {
   ensureDialog();
   list = items;
   options = opts;
+  linkBtn.hidden = !opts.copyLink;
   openedAt = performance.now();
   if (!dialog.open) dialog.showModal();
   show(Math.max(0, Math.min(index, items.length - 1)));

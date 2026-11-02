@@ -5,7 +5,7 @@
  *
  *   toolbar.init({ onAction(name), onSort(id), onFilters(filters) })
  *   toolbar.update({ visible, columns, sort, filters, facets, actions, counts })
- *     actions  { open: { enabled }, download: { enabled, count, title } }
+ *     actions  { open: { enabled }, download: { enabled, count, title }, link: { label } }
  *     counts   { shown, total, search }: for the sheet's button and the chips line
  *   toolbar.closeSheet()
  *
@@ -27,7 +27,7 @@ const PERIOD_LABELS = {
 const KIND_LABELS = { video: "filter.kindVideo", image: "filter.kindImage", other: "filter.kindOther" };
 
 let hooks = null, filters = { ...NO_FILTERS }, last = null;
-let bar, openBtn, downloadBtn, downloadLabel, sortSelect, group, period, aroundBox, at, margin, rangeBox, from, to;
+let bar, openBtn, downloadBtn, downloadLabel, linkBtn, sortSelect, group, period, aroundBox, at, margin, rangeBox, from, to;
 let cameraBox, camera, kindBox, kind, clearBtn, filterBtn, summary, sheet, sheetBody, sheetShow, home;
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -133,6 +133,7 @@ function update(view) {
   downloadBtn.disabled = !dl.enabled;
   downloadLabel.textContent = dl.count > 1 ? t("cmd.downloadCount", { n: dl.count }) : t("cmd.download");
   downloadBtn.title = dl.title || "";
+  linkBtn.querySelector(".btn-label").textContent = view.actions.link.label;
 
   // Trier: the Caméra orders only when the column shows.
   const sorts = SORTS.filter((s) => s.key !== "camera" || view.columns.includes("camera"));
@@ -196,6 +197,7 @@ function init(options) {
   openBtn = $("cmd-open");
   downloadBtn = $("cmd-download");
   downloadLabel = downloadBtn.querySelector(".btn-label");
+  linkBtn = $("cmd-link");
   sortSelect = $("sort-select");
   group = $("filter-group");
   period = $("f-period");
@@ -219,11 +221,13 @@ function init(options) {
 
   openBtn.prepend(icon("open"));
   downloadBtn.prepend(icon("download"));
+  linkBtn.prepend(icon("link"));
   filterBtn.prepend(icon("filter"));
   fill(margin, MARGINS.map((m) => [String(m), t("filter.marginMinutes", { n: m })]), "15");
 
   openBtn.addEventListener("click", () => hooks.onAction("open"));
   downloadBtn.addEventListener("click", () => hooks.onAction("download"));
+  linkBtn.addEventListener("click", () => hooks.onAction("link"));
   sortSelect.addEventListener("change", () => hooks.onSort(sortSelect.value));
   for (const control of [period, at, margin, from, to, camera, kind]) control.addEventListener("change", changed);
   clearBtn.addEventListener("click", clearFilters);

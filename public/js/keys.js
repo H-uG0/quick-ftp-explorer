@@ -5,8 +5,8 @@
  *   layers.push(name, close)    a layer Esc closes (a menu, the phone search, the drawer)
  *   layers.remove(name)         it closed some other way
  *   onShortcut(handler)         handler(name, event) for "find" (Ctrl+F, F3),
- *                               "menu" (Shift+F10, the Menu key), "up" (Alt+Up,
- *                               Backspace) and "help" (?); return true to take the key
+ *                               "menu" (Shift+F10, the Menu key), "up" (Alt+Up),
+ *                               "back" (Backspace) and "help" (?); return true to take the key
  *   announce(text)              say it once, politely, through the #announcer region
  *
  * Esc closes only the topmost layer. Native dialogs close themselves (their
@@ -51,7 +51,7 @@ function shortcutFor(e) {
   if (e.key === "F3" && !e.ctrlKey && !e.altKey) return "find";
   if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") return "menu";
   if (e.key === "ArrowUp" && e.altKey && !e.ctrlKey && !e.shiftKey) return "up";
-  if (e.key === "Backspace" && !typing && !e.altKey && !e.ctrlKey) return "up";
+  if (e.key === "Backspace" && !typing && !e.altKey && !e.ctrlKey) return "back";
   if (e.key === "?" && !typing && !e.ctrlKey && !e.altKey) return "help";
   return null;
 }

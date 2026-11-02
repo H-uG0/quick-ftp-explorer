@@ -266,7 +266,7 @@ function pageSize() {
 
 function onKeydown(e) {
   const row = rowFrom(e.target);
-  if (!row) return;
+  if (!row || e.altKey) return;   // Alt+arrows move between folders
   const state = callbacks.selection();
   const at = order.indexOf(row.key);
   const mods = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey };

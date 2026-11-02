@@ -173,6 +173,8 @@ a { color: var(--link); }
   white-space: nowrap;
 }
 
+.nav-buttons { display: flex; gap: 4px; flex-shrink: 0; }
+
 /* The address bar: Tous les sites › site › folders. The last segment never
    shrinks; earlier ones give way first. */
 .breadcrumb {
@@ -761,6 +763,11 @@ button:disabled { background: var(--disabled-bg); color: var(--disabled-text); c
 .spinner-text { font-size: var(--fs-sm); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.toast-info {
+  color: var(--on-ink) !important;
+  background: var(--ink) !important;
+  border-color: var(--ink) !important;
+}
 .toast {
   position: fixed;
   left: 50%;
@@ -907,6 +914,18 @@ dialog::backdrop { background: oklch(0.2 0.03 245 / 0.45); }
 }
 .modal h3, .sheet h3 { margin: 0 0 14px; font-size: var(--fs-lg); }
 
+.link-field {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  resize: none;
+}
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -963,16 +982,17 @@ dialog::backdrop { background: oklch(0.2 0.03 245 / 0.45); }
 }
 .viewer[open] {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
-    "nav caption download close"
-    "stage stage stage stage";
+    "nav caption link download close"
+    "stage stage stage stage stage";
 }
 .viewer::backdrop { background: var(--viewer); }
-.viewer-nav, .viewer-caption, .viewer-download, .viewer-close {
+.viewer-nav, .viewer-caption, .viewer-link, .viewer-download, .viewer-close {
   align-self: center;
 }
+.viewer-link { grid-area: link; margin: 6px 4px; }
 .viewer-nav {
   grid-area: nav;
   display: flex;
@@ -990,8 +1010,8 @@ dialog::backdrop { background: oklch(0.2 0.03 245 / 0.45); }
 .viewer-download { grid-area: download; margin: 6px 4px; }
 .viewer-close { grid-area: close; margin: 6px 12px 6px 4px; }
 .viewer > :not(.viewer-body) { background: var(--viewer-bar); }
-.viewer-nav, .viewer-caption, .viewer-download, .viewer-close { border-bottom: 1px solid var(--viewer-line); }
-.viewer-download, .viewer-close { box-shadow: 0 0 0 6px var(--viewer-bar); }
+.viewer-nav, .viewer-caption, .viewer-link, .viewer-download, .viewer-close { border-bottom: 1px solid var(--viewer-line); }
+.viewer-link, .viewer-download, .viewer-close { box-shadow: 0 0 0 6px var(--viewer-bar); }
 .viewer-title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1117,7 +1137,7 @@ audio.viewer-media {
 @media (max-width: 700px) {
   .menu-toggle { display: inline-flex; }
   .topbar { gap: 6px; height: 56px; padding: 0 6px; }
-  .topbar .brand { display: none; }
+  .topbar .brand, .nav-buttons { display: none; }
   .topbar .btn-icon { width: 44px; min-height: 44px; flex-shrink: 0; }
 
   /* Only the current place shows, as the page's title. */
@@ -1215,16 +1235,18 @@ audio.viewer-media {
 
   /* The viewer: Fermer and the caption on top, the steps at the bottom. */
   .viewer[open] {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "close caption caption"
-      "stage stage stage"
-      "nav nav download";
+      "close caption caption caption"
+      "stage stage stage stage"
+      "nav nav link download";
   }
   .viewer-close { margin: 6px 0 6px 6px; }
   .viewer-nav { border-bottom: 0; border-top: 1px solid var(--viewer-line); justify-content: space-between; }
-  .viewer-download { margin: 0; align-self: stretch; border-radius: 0; border: 0; border-top: 1px solid var(--viewer-line); }
+  .viewer-download, .viewer-link { margin: 0; align-self: stretch; border-radius: 0; border: 0; border-top: 1px solid var(--viewer-line); }
+  .viewer-link .btn-label, .viewer-download .btn-label { display: none; }
+  .viewer-link, .viewer-download { min-width: 56px; }
   .viewer .btn-secondary { min-height: 48px; }
   .viewer-nav .btn-label { display: none; }
   .viewer-nav .btn-secondary { min-width: 64px; }

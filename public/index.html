@@ -20,6 +20,17 @@
         <img class="brand-mark" src="/logo.svg" alt="" width="26" height="26" />
         <span class="brand-name">Quick FTP Explorer</span>
       </div>
+      <div class="nav-buttons">
+        <button type="button" id="nav-back" class="btn-secondary btn-icon" title="Back (Alt+Left arrow)" aria-label="Back (Alt+Left arrow)" data-i18n-attr="title: nav.back; aria-label: nav.back" disabled>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 8H3m4-4.25L2.75 8 7 12.25"/></svg>
+        </button>
+        <button type="button" id="nav-forward" class="btn-secondary btn-icon" title="Forward (Alt+Right arrow)" aria-label="Forward (Alt+Right arrow)" data-i18n-attr="title: nav.forward; aria-label: nav.forward" disabled>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.75 8H13M9 3.75 13.25 8 9 12.25"/></svg>
+        </button>
+        <button type="button" id="nav-up" class="btn-secondary btn-icon" aria-label="Up" data-i18n-attr="aria-label: nav.upPlain" disabled>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.25V3m-4.25 4L8 2.75 12.25 7"/></svg>
+        </button>
+      </div>
       <nav id="breadcrumb" class="breadcrumb" aria-label="Location" data-i18n-attr="aria-label: nav.current">
         <ol class="bc-list"></ol>
       </nav>
@@ -61,6 +72,7 @@
           <div class="cmd-group cmd-actions" role="group" aria-label="Actions" data-i18n-attr="aria-label: cmd.actions">
             <button type="button" id="cmd-open" class="btn-secondary" disabled><span class="btn-label" data-i18n="cmd.open">Open</span></button>
             <button type="button" id="cmd-download" class="btn-secondary" disabled><span class="btn-label" data-i18n="cmd.download">Download</span></button>
+            <button type="button" id="cmd-link" class="btn-secondary"><span class="btn-label" data-i18n="share.copy">Copy link</span></button>
           </div>
           <div class="cmd-group cmd-sort">
             <label for="sort-select" data-i18n="sort.label">Sort</label>
@@ -126,6 +138,15 @@
     </footer>
 
     <div id="announcer" class="sr-only" role="status"></div>
+
+    <dialog id="link-dialog" class="modal" aria-labelledby="link-dialog-title">
+      <h3 id="link-dialog-title" data-i18n="share.dialogTitle">Copy this link</h3>
+      <textarea id="link-field" class="link-field" readonly rows="1" aria-labelledby="link-dialog-title"></textarea>
+      <p class="field-hint muted" data-i18n="share.dialogHint">Press Ctrl+C to copy it.</p>
+      <div class="modal-actions">
+        <button type="button" id="link-close" data-i18n="common.close">Close</button>
+      </div>
+    </dialog>
 
     <dialog id="filter-sheet" class="sheet" aria-labelledby="filter-sheet-title">
       <h3 id="filter-sheet-title" data-i18n="filter.group">Filters</h3>

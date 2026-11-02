@@ -130,6 +130,8 @@ describe("sign-in and sessions", () => {
       body: new URLSearchParams({ username: "alice", password, next }),
     });
     assert.equal((await withNext("#/main-nvr/Images/%C3%A9t%C3%A9")).headers.get("location"), "/#/main-nvr/Images/%C3%A9t%C3%A9");
+    const clip = "#/main-nvr/Cameras?open=1234_Cam%201_202610300830.avi";
+    assert.equal((await withNext(clip)).headers.get("location"), "/" + clip, "a clip link too");
     assert.equal((await withNext("#/x", "wrong-password!")).headers.get("location"), "/login?error=invalid#/x");
     for (const evil of ["//evil.example.com", "https://evil.example.com", "#/a b", "#/a\r\nSet-Cookie: x=1", "/admin"]) {
       assert.equal((await withNext(evil)).headers.get("location"), "/", evil);

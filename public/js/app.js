@@ -14,9 +14,11 @@
  * the same commands. Admins manage sites here too.
  *
  * The open folder lives in the URL fragment ("#/<id>/<path>"; "#/" is
- * Tous les sites), so links can be bookmarked or shared and Back / Forward
- * move between folders. The viewer adds a history entry of its own, so
- * Back closes it. On narrow screens the sites pane becomes a drawer.
+ * Tous les sites; "?open=<name>" opens a clip on arrival), so links can be
+ * bookmarked or shared and Back / Forward move between folders. Each
+ * history entry also remembers its view (search, filters, selection,
+ * scroll), so Back and F5 bring it back. The viewer adds an entry of its
+ * own, so Back closes it. On narrow screens the sites pane becomes a drawer.
  */
 
 import * as api from "./api.js";
@@ -86,7 +88,9 @@ let selection = sel.EMPTY;
 let shownRows = [];          // the rows on screen, in order
 let viewSeq = 0;             // ignore listings that arrive after the view moved on
 let listError = null;        // the open folder's listing failed
-let pendingSelect = null;    // a key to select once its folder shows (Ouvrir l'emplacement)
+let pendingSelect = null;    // a key to select once its folder shows (Ouvrir l'emplacement, Up)
+let pendingOpen = null;      // a clip to open once its folder shows (a clip link)
+let restoring = null;        // a view history brings back (Back, F5)
 let viewId = "";
 
 const isAdmin = () => me?.role === "admin";
@@ -113,12 +117,14 @@ async function busy(label, work) {
 }
 
 let toastTimer = 0;
-function toast(text) {
+function toast(text, { error = true } = {}) {
   const box = $("toast");
+  box.setAttribute("role", error ? "alert" : "status");
+  box.classList.toggle("toast-info", !error);
   box.textContent = text;
   box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { box.hidden = true; }, 8000);
+  toastTimer = setTimeout(() => { box.hidden = true; }, error ? 8000 : 2500);
 }
 
 /* ---- sites ---- */
@@ -172,6 +178,7 @@ const gridCallbacks = {
     selection = state;
     grid.update(state);
     updateChrome();
+    scheduleSave();
     if (state.selected.size === 1 && !prefs.get("hintDone") && !narrow.matches) status.hint.textContent = t("sel.hint");
   },
   open(row) {
@@ -211,6 +218,7 @@ function setSort(id) {
 function setFilters(next, { quiet = false } = {}) {
   filters = { ...next };
   renderView();
+  scheduleSave();
   if (!quiet) announce(status.count.textContent);
 }
 
@@ -252,7 +260,8 @@ function renderView() {
     rows = [...view.sites, ...rows.slice(0, MAX_SHOWN)];
   }
   shownRows = rows;
-  selection = sel.retain(selection, rows.map((r) => r.key));
+  const loaded = view.mode !== "folder" || !!tree.cached(current.shortcut, current.path) || !!listError;
+  if (loaded) selection = sel.retain(selection, rows.map((r) => r.key));
   if (pendingSelect && rows.some((r) => r.key === pendingSelect)) {
     selection = sel.click(sel.EMPTY, rows.map((r) => r.key), pendingSelect);
   }
@@ -272,6 +281,29 @@ function renderView() {
   if (pendingSelect && rows.some((r) => r.key === pendingSelect)) {
     grid.focus(pendingSelect);
     pendingSelect = null;
+  }
+  if (restoring && loaded) {
+    const back = restoring;
+    restoring = null;
+    fileList.scrollTop = back.scrollTop ?? 0;
+    if (back.focusKey && grid.row(back.focusKey)) grid.focus(back.focusKey);
+    if (back.query && !searching) {
+      searchInput.value = back.query;
+      searchClear.hidden = false;
+      runSearch();
+      return;
+    }
+  }
+  if (pendingOpen && view.mode === "folder" && loaded) {
+    const key = pendingOpen;
+    pendingOpen = null;
+    const row = grid.row(key);
+    if (row) {
+      selectAndFocus(key);
+      openFile(row);
+    } else if (!listError) {
+      showNotice(t("share.gone"));
+    }
   }
   if (view.mode === "search") updateResultsHeader(view);
 
@@ -315,7 +347,11 @@ function updateChrome() {
     sort: { id: sortId(effective) },
     filters,
     facets: renderState.facets ?? { cameras: [], cameraTotal: 0, kinds: [], kindTotal: 0 },
-    actions: { open: { enabled: picked.length === 1 || files.length >= 2 }, download: downloadState(files) },
+    actions: {
+      open: { enabled: picked.length === 1 || files.length >= 2 },
+      download: downloadState(files),
+      link: { label: linkLabel(picked.length) },
+    },
     counts: { shown: shownCount, total, search: mode === "search" },
   });
 }
@@ -384,8 +420,8 @@ async function onSelect(target) {
   const moved = !current || current.shortcut.id !== target.shortcut.id || current.path !== target.path;
   if (searching) clearSearch();   // as in File Explorer, going somewhere ends the search
   if (moved) {
-    filters = { ...NO_FILTERS };
-    selection = sel.EMPTY;
+    filters = { ...NO_FILTERS, ...restoring?.filters };
+    selection = restoring ? restoredSelection(restoring) : sel.EMPTY;
     hideNotice();
   }
   current = target;
@@ -394,10 +430,11 @@ async function onSelect(target) {
   // A new history entry per folder, unless the URL already says so (Back /
   // Forward, a pasted link, the page loading).
   const hash = formatHash(target.shortcut.id, target.path);
-  if (location.hash !== hash) history.pushState({}, "", hash);
+  if (location.hash !== hash) pushEntry(hash);
   if (narrow.matches) setDrawer(false);
   renderBreadcrumb();
   refreshBtn.disabled = false;
+  updateNavButtons();
   setTitle();
   grid.hold();
   const seq = ++viewSeq;
@@ -436,13 +473,14 @@ function goHome({ push = true } = {}) {
   if (searching) clearSearch();
   current = null;
   filters = { ...NO_FILTERS };
-  selection = sel.EMPTY;
+  selection = restoring ? restoredSelection(restoring) : sel.EMPTY;
   listError = null;
   hideNotice();
   searchInput.placeholder = searchPlaceholder();
   tree.selectHome();
   refreshBtn.disabled = true;
-  if (push && location.hash !== "#/") history.pushState({}, "", "#/");
+  if (push && location.hash !== "#/") pushEntry("#/");
+  updateNavButtons();
   setTitle();
   renderBreadcrumb();
   grid.hold();
@@ -450,11 +488,76 @@ function goHome({ push = true } = {}) {
   renderView();
 }
 
+// Up opens the parent folder, or Tous les sites from a site, and selects
+// the folder or site you came from.
 function goUp() {
   if (!current) return;
   const parent = parentPath(current.path);
+  pendingSelect = `${current.shortcut.id}::${current.path}`;
   if (parent === null) goHome();
   else tree.reveal(current.shortcut, parent);
+}
+
+/* ---- history ---- */
+
+// Every entry carries its index, so ← never leaves the app and → knows
+// when there is nowhere to go.
+const entryIdx = () => history.state?.idx ?? 0;
+function maxIdx() {
+  try {
+    return Number(sessionStorage.getItem("qfe.maxIdx")) || 0;
+  } catch {
+    return 0;
+  }
+}
+function pushEntry(url, extra = {}) {
+  saveView();   // the entry being left keeps its view
+  const idx = entryIdx() + 1;
+  history.pushState({ idx, ...extra }, "", url);
+  try {
+    sessionStorage.setItem("qfe.maxIdx", String(idx));   // anything ahead is gone now
+  } catch { /* Forward then stays available */ }
+  updateNavButtons();
+}
+
+const navBack = $("nav-back"), navForward = $("nav-forward"), navUp = $("nav-up");
+function updateNavButtons() {
+  navBack.disabled = entryIdx() === 0;
+  navForward.disabled = entryIdx() >= maxIdx();
+  navUp.disabled = !current;
+  const parent = current ? parentPath(current.path) : null;
+  navUp.title = current
+    ? t("nav.up", { parent: parent === null ? t("nav.home") : parent === "/" ? current.shortcut.label : parent.split("/").at(-1) })
+    : "";
+  navUp.setAttribute("aria-label", navUp.title || t("nav.upPlain"));
+}
+navBack.addEventListener("click", () => { if (entryIdx() > 0) history.back(); });
+navForward.addEventListener("click", () => history.forward());
+navUp.addEventListener("click", goUp);
+
+// Each entry remembers its view; written as it changes (debounced), and
+// at once before leaving.
+let saveTimer = 0;
+function saveView() {
+  clearTimeout(saveTimer);
+  if (!booted || viewer.isOpen() || history.state?.viewer) return;
+  const view = {
+    query: searchInput.value,
+    filters,
+    selected: [...selection.selected].slice(0, 200),
+    focusKey: selection.focus,
+    scrollTop: fileList.scrollTop,
+  };
+  history.replaceState({ ...history.state, view }, "", location.href);
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveView, 300);
+}
+fileList.addEventListener("scroll", scheduleSave, { passive: true });
+
+function restoredSelection(view) {
+  return { selected: new Set(view.selected ?? []), anchor: view.focusKey ?? null, focus: view.focusKey ?? null };
 }
 
 // Show whatever the URL names (page load, Back / Forward, an edited or
@@ -469,11 +572,18 @@ function followUrl() {
     if (current || searching) goHome({ push: false });
     return;
   }
-  if (current && current.shortcut.id === target.id && current.path === target.path) return;
   const sc = shortcuts.find((s) => s.id === target.id);
+  if (target.open && sc) {
+    // A clip link: the folder, then the viewer. The entry becomes the
+    // folder's, so Back from the viewer stays in the folder.
+    history.replaceState({ idx: entryIdx() }, "", formatHash(target.id, target.path));
+    pendingOpen = `${target.id}::${target.path === "/" ? "" : target.path}/${target.open}`;
+    if (current && current.shortcut.id === target.id && current.path === target.path) renderView();
+  }
+  if (current && current.shortcut.id === target.id && current.path === target.path) return;
   if (sc) tree.reveal(sc, target.path);
   else {
-    history.replaceState({}, "", "#/");
+    history.replaceState({ idx: entryIdx() }, "", "#/");
     goHome({ push: false });
   }
 }
@@ -481,11 +591,16 @@ function followUrl() {
 window.addEventListener("popstate", () => {
   // The viewer has a history entry of its own: Back closes it.
   const wanted = history.state?.viewer;
+  updateNavButtons();
   if (viewer.isOpen() && !wanted) {
     const last = viewer.current();
     viewer.close();
     if (last) selectAndFocus(last.key);
+    return;
   }
+  const target = parseHash(location.hash);
+  const here = target ? current && current.shortcut.id === target.id && current.path === target.path : !current;
+  if (!here) restoring = history.state?.view ?? null;
   followUrl();
   if (!viewer.isOpen() && wanted) {
     const row = grid.row(wanted.key);
@@ -505,13 +620,16 @@ function selectAndFocus(key) {
 /* ---- refresh ---- */
 
 function showNotice(text, retry) {
-  const button = el("button", "btn-secondary btn-sm", t("common.retry"));
-  button.type = "button";
-  button.addEventListener("click", () => {
-    hideNotice();
-    retry();
-  });
-  notice.replaceChildren(el("span", "", text), button);
+  notice.replaceChildren(el("span", "", text));
+  if (retry) {
+    const button = el("button", "btn-secondary btn-sm", t("common.retry"));
+    button.type = "button";
+    button.addEventListener("click", () => {
+      hideNotice();
+      retry();
+    });
+    notice.append(button);
+  }
   notice.hidden = false;
 }
 function hideNotice() {
@@ -590,7 +708,7 @@ function openViewer(row, { push = true } = {}) {
   const { items, index } = playlist(shownRows, row.key, selection.selected);
   if (index < 0) return;
   grid.hold();
-  if (push) history.pushState({ ...history.state, viewer: { key: row.key } }, "", location.href);
+  if (push) pushEntry(location.href, { viewer: { key: row.key } });
   viewer.open(items, index, {
     describe: viewerItem,
     onShow(shownRow) {
@@ -598,6 +716,7 @@ function openViewer(row, { push = true } = {}) {
     },
     onRequestClose: () => history.back(),
     autoplay: () => prefs.get("autoplay"),
+    copyLink: (shownRow) => copyLinks([shownRow]),
   });
 }
 
@@ -609,6 +728,47 @@ function openFile(row) {
 }
 
 const selectedRows = () => shownRows.filter((r) => selection.selected.has(r.key));
+
+// A folder's or site's link, or a clip's ("?open=<name>").
+const linkFor = (row) => location.origin + location.pathname +
+  (row.isDir ? formatHash(row.sc.id, row.path) : formatHash(row.sc.id, row.parent, { open: row.name }));
+const canShare = () => !!navigator.share && window.matchMedia("(pointer: coarse)").matches;
+
+// The selection's links, one per line, or the open folder's.
+async function copyLinks(rows = selectedRows()) {
+  const links = rows.length ? rows.map(linkFor) : current ? [location.origin + location.pathname + formatHash(current.shortcut.id, current.path)] : [];
+  if (!links.length) return;
+  if (canShare() && links.length === 1) {
+    try {
+      await navigator.share({ url: links[0] });
+      return;
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(links.join("\n"));
+    toast(tn("share.copied", links.length), { error: false });
+  } catch {
+    showLinkDialog(links.join("\n"));
+  }
+}
+
+const linkDialog = $("link-dialog");
+function showLinkDialog(text) {
+  const field = $("link-field");
+  field.value = text;
+  field.rows = Math.min(6, text.split("\n").length);
+  if (!linkDialog.open) linkDialog.showModal();
+  field.focus();
+  field.select();
+}
+$("link-close").addEventListener("click", () => linkDialog.close());
+
+function linkLabel(count) {
+  if (canShare() && count <= 1) return t("share.share");
+  return count > 1 ? t("share.copyMany") : t("share.copy");
+}
 
 function openSelection() {
   const picked = selectedRows();
@@ -859,6 +1019,10 @@ onShortcut((name, e) => {
       if (!current || isTypingTarget(e.target)) return false;
       goUp();
       return true;
+    case "back":
+      if (isTypingTarget(e.target) || entryIdx() === 0) return false;
+      history.back();
+      return true;
     default:
       return false;
   }
@@ -879,11 +1043,13 @@ function rowMenu(row, at) {
     updateChrome();
   }
   const items = [{ label: t("cmd.open"), isDefault: true, run: () => openRow(row) }];
+  const picked = selectedRows();
+  const link = { label: linkLabel(picked.length), run: () => copyLinks(picked) };
   if (row.kind === "site") {
-    items.push({ label: t("menu.openNewTab"), run: () => openInNewTab(row) });
+    items.push({ label: t("menu.openNewTab"), run: () => openInNewTab(row) }, link);
     if (isAdmin()) siteAdminItems(items, row.sc);
   } else if (row.isDir) {
-    items.push({ label: t("menu.openNewTab"), run: () => openInNewTab(row) });
+    items.push({ label: t("menu.openNewTab"), run: () => openInNewTab(row) }, link);
   } else {
     const files = selectedRows().filter((r) => !r.isDir);
     const state = downloadState(files);
@@ -891,6 +1057,7 @@ function rowMenu(row, at) {
       label: files.length > 1 ? t("cmd.downloadCount", { n: files.length }) : t("cmd.download"),
       disabled: !state.enabled, title: state.title, run: downloadSelection,
     });
+    items.push(link);
     if (searching) items.push({ label: t("menu.openLocation"), run: () => openLocation(row) });
     items.push("separator", { label: t("menu.selectAll"), shortcut: t("kbd.ctrlA"), run: selectAllFiles });
   }
@@ -1170,7 +1337,7 @@ form.addEventListener("submit", async (e) => {
 
 refreshBtn.addEventListener("click", refresh);
 toolbar.init({
-  onAction: (name) => (name === "open" ? openSelection() : downloadSelection()),
+  onAction: (name) => (name === "open" ? openSelection() : name === "link" ? copyLinks() : downloadSelection()),
   onSort: setSort,
   onFilters: (next) => setFilters(next),
 });
@@ -1193,9 +1360,12 @@ try {
   placeAccount();
   await loadShortcuts();
   searchInput.placeholder = searchPlaceholder();
+  if (history.state?.idx === undefined) history.replaceState({ ...history.state, idx: 0 }, "", location.href);
+  restoring = history.state?.view ?? null;   // F5: the same view again
   booted = true;
   if (parseHash(location.hash)) followUrl();
   else goHome({ push: false });
+  updateNavButtons();
 } catch (err) {
   if (err.status !== 401) fileList.replaceChildren(el("p", "placeholder placeholder-error", err.message));
 }
